@@ -1,0 +1,9 @@
+pytest
+pytest-bdd
+python-dotenv
+requests
+gitpython
+mkdocs
+mkdocs-material
+mkdocstrings[python]
+docker
