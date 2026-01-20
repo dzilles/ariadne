@@ -262,7 +262,7 @@ LISTEN_HTTP_PORT=8090
 WEB_URL=http://localhost:8090
 APP_DOMAIN=localhost
 CORS_ALLOWED_ORIGINS=http://localhost:8090
-CERT_EMAIL=admin@localhost
+CERT_EMAIL=email admin@localhost
 CERT_ACME_CA=https://acme-staging-v02.api.letsencrypt.org/directory
 CERT_ACME_DNS=
 """

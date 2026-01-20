@@ -23,6 +23,9 @@ def main():
     complete_parser = subparsers.add_parser("complete", help="Finalize a ticket")
     complete_parser.add_argument("--ticket", required=True, help="Plane ticket ID")
 
+    # Chat command
+    subparsers.add_parser("chat", help="Start the interactive agent chat interface")
+
     args = parser.parse_args()
 
     if args.command == "phase":
@@ -35,6 +38,9 @@ def main():
     elif args.command == "complete":
         print(f"Completing lifecycle for ticket {args.ticket}...")
         # Implementation logic will go here
+    elif args.command == "chat":
+        from src.user_interface import main as chat_main
+        chat_main()
     else:
         parser.print_help()
 

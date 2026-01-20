@@ -11,32 +11,49 @@ def load_configuration():
     config = {
         "PLANE_URL": os.getenv("PLANE_URL", "http://localhost:8090"),
         "LLM_BACKEND": os.getenv("LLM_BACKEND", "ollama"),
+        "PROJECT_PATH": os.getenv("ARIADNE_PROJECT_PATH", "."),
         "PLANE_API_TOKEN": None
     }
 
     # 2. Find and read the Plane secret key file
-    plane_dir = os.path.join(os.getcwd(), ".plane")
-    secret_files = glob.glob(os.path.join(plane_dir, "secret-key-*.csv"))
+    search_dirs = [
+        os.path.join(os.getcwd(), ".plane"),
+        os.path.join(os.getcwd(), ".config")
+    ]
+    
+    secret_files = []
+    for d in search_dirs:
+        if os.path.exists(d):
+            secret_files.extend(glob.glob(os.path.join(d, "secret-key-*.csv")))
 
     if not secret_files:
-        print("Warning: No Plane secret key file found in .plane/")
-        return config
+        logger.warning("No Plane secret key file found in .plane/ or .config/")
+    else:
+        # Use the most recent file if multiple exist
+        latest_secret_file = max(secret_files, key=os.path.getctime)
+        logger.info(f"Loading Plane API key from {latest_secret_file}")
 
-    # Use the most recent file if multiple exist
-    latest_secret_file = max(secret_files, key=os.path.getctime)
+        try:
+            with open(latest_secret_file, "r", newline="") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    # Plane CSV usually has "Secret key" column
+                    if "Secret key" in row and row["Secret key"]:
+                        config["PLANE_API_TOKEN"] = row["Secret key"]
+                        break
+        except Exception as e:
+            logger.error(f"Error reading Plane secret key: {e}")
 
-    try:
-        with open(latest_secret_file, "r", newline="") as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                # Assuming the token we want is the "Main access token" or just the first one
-                if "Secret key" in row and row["Secret key"]:
-                    config["PLANE_API_TOKEN"] = row["Secret key"]
-                    break
-    except Exception as e:
-        print(f"Error reading Plane secret key: {e}")
+    # Add other plane settings from env
+    config["PLANE_WS_SLUG"] = os.getenv("PLANE_WS_SLUG")
+    config["PLANE_PROJECT_ID"] = os.getenv("PLANE_PROJECT_ID")
+    config["PLANE_API_URL"] = os.getenv("PLANE_API_URL", f"{config['PLANE_URL']}/api/v1")
 
     return config
+
+# Configure logging for config loader if needed
+import logging
+logger = logging.getLogger(__name__)
 
 # Singleton configuration object
 settings = load_configuration()

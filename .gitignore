@@ -152,3 +152,5 @@ traceability.lock
 # Local configuration
 .config/
 .plane/
+
+.chat_history.json

@@ -14,8 +14,30 @@ def init_config():
         print(f"\033[93mDirectory already exists: {CONFIG_DIR}\033[0m")
 
     # Create .env.example
-    example_content = """PLANE_URL=http://localhost:8090
-LLM_BACKEND=ollama
+    example_content = """# Plane Configuration
+PLANE_API_URL=http://localhost:8091/api/v1
+PLANE_API_KEY=your-plane-api-key
+PLANE_WS_SLUG=your-workspace-slug
+PLANE_PROJECT_ID=your-project-id
+
+# LLM Configuration
+LLM_PROVIDER=gemini
+# Options: gemini, ollama
+
+# Gemini Configuration
+GOOGLE_API_KEY=your-google-api-key
+GEMINI_MODEL=gemini-pro
+
+# Ollama Configuration
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_MODEL=llama3
+
+# Project Path (Origin for agent file operations)
+ARIADNE_PROJECT_PATH=.
+
+# Agent API Keys
+PO_AGENT_API_KEY=your-po-agent-key
+ENGINEER_AGENT_API_KEY=your-engineer-agent-key
 """
     with open(EXAMPLE_ENV_FILE, "w") as f:
         f.write(example_content)

@@ -7,3 +7,10 @@ mkdocs
 mkdocs-material
 mkdocstrings[python]
 docker
+
+langchain
+langchain-google-genai
+langchain-ollama
+
+prompt_toolkit
+langgraph
