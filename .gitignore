@@ -154,3 +154,5 @@ traceability.lock
 .plane/
 
 .chat_history.json
+
+logs/

@@ -5,8 +5,6 @@ import requests
 import threading
 from typing import List, Dict, Optional, Any
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class PlaneAPIError(Exception):
@@ -179,6 +177,29 @@ class PlaneInteraction:
                 return f"Success: Created Sub-Ticket {data.get('sequence_id')} - '{data.get('name')}' under Parent {parent_issue_number}"
             except PlaneAPIError as e:
                 return f"Error creating sub-issue: {e.message}"
+
+    def delete_issue(self, issue_number: int) -> str:
+        """
+        Deletes an issue by its sequence ID.
+        """
+        issue = self.get_issue_by_number(issue_number)
+        if isinstance(issue, str) or not issue: return f"Error: Issue {issue_number} not found."
+        issue_id = issue.get("id")
+        
+        url = f"{self.base_url}/issues/{issue_id}/"
+        
+        with self._lock:
+            logger.info(f"Deleting issue: {issue_number}")
+            try:
+                response = requests.delete(url, headers=self._get_headers())
+                # 204 No Content is success for delete usually
+                if 200 <= response.status_code < 300:
+                    return f"Success: Deleted Issue {issue_number}"
+                else:
+                    logger.error(f"API request failed: {response.status_code} - {response.text}")
+                    return f"Error deleting issue: {response.status_code} - {response.text}"
+            except Exception as e:
+                return f"Error deleting issue: {e}"
 
     def update_issue(self, issue_number: int, title: str = None, description: str = None, priority: str = None,
                      state: str = None, assignees: List[str] = None, start_date: str = None, due_date: str = None,

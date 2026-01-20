@@ -44,6 +44,7 @@ class ProductOwnerAgent:
             self.pm_tools.create_ticket,
             self.pm_tools.create_sub_task,
             self.pm_tools.update_ticket,
+            self.pm_tools.delete_ticket,
             self.pm_tools.search_tickets,
             self.pm_tools.get_ticket_details,
             self.pm_tools.add_link,
@@ -80,6 +81,8 @@ class ProductOwnerAgent:
         """
         Interacts with the agent while maintaining chat history.
         """
+        logger.info(f"User Input: {user_input}")
+        
         # Add user message to history
         self.chat_history.append(HumanMessage(content=user_input))
         
@@ -108,14 +111,18 @@ class ProductOwnerAgent:
             final_content = "".join(text_parts).strip()
             
             if not final_content and hasattr(last_msg, 'tool_calls') and last_msg.tool_calls:
-                 return f"[Action Taken: {last_msg.tool_calls[0].get('name')}]"
+                 action_msg = f"[Action Taken: {last_msg.tool_calls[0].get('name')}]"
+                 logger.info(f"Agent Response: {action_msg}")
+                 return action_msg
             
+            logger.info(f"Agent Response: {final_content}")
             return final_content
             
         final_str = str(content)
         if not final_str.strip():
              return "[System Warning: The AI returned an empty response. This might be due to server overload or safety filters.]"
              
+        logger.info(f"Agent Response: {final_str}")
         return final_str
 
     def _get_system_message(self) -> str:
@@ -134,6 +141,7 @@ Backlog Management Rules:
 - Create Ticket: For new features or bugs. Use structured HTML for descriptions (User Story + Acceptance Criteria).
 - Sub-tasks: Break down complex tickets into smaller tasks.
 - Updates: You can change status, assignees, dates, priority, labels, or parent tickets.
+- Deletion: You can DELETE tickets if requested. Use this with caution.
 - Enrichment: Add links (URLs), relations (blocking/related), or attach local files.
 - Comments: Add notes for clarification or updates.
 

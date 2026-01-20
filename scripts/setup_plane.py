@@ -265,6 +265,7 @@ CORS_ALLOWED_ORIGINS=http://localhost:8090
 CERT_EMAIL=email admin@localhost
 CERT_ACME_CA=https://acme-staging-v02.api.letsencrypt.org/directory
 CERT_ACME_DNS=
+API_KEY_RATE_LIMIT=600/minute
 """
 
 def run_command(command, cwd=None):

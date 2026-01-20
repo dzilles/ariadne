@@ -13,6 +13,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.po_agent import ProductOwnerAgent
 from src.engineer_agent import EngineerAgent
+from src.logging_config import setup_logging
 
 # Agent Registry: Name -> Class
 AGENT_REGISTRY = {
@@ -101,6 +102,9 @@ def switch_agent(current_agent_name):
         print("Invalid selection. Please type one of the names listed above (or Ctrl+C to cancel).")
 
 def main():
+    # Initialize central logging
+    setup_logging()
+    
     # Configure logging before doing anything else
     configure_logging()
     
