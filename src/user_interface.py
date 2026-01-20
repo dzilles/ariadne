@@ -13,15 +13,18 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.po_agent import ProductOwnerAgent
 from src.engineer_agent import EngineerAgent
+from src.requirements_agent import RequirementsAgent
 from src.logging_config import setup_logging
 
 # Agent Registry: Name -> Class
 AGENT_REGISTRY = {
     "PO": ProductOwnerAgent,
+    "Requirements": RequirementsAgent,
     "Engineer": EngineerAgent,
 }
 
-HISTORY_FILE = ".chat_history.json"
+def get_history_filename(agent_name):
+    return f".chat_history_{agent_name}.json"
 
 def configure_logging():
     """Silences verbose loggers to ensure a clean chat interface."""
@@ -37,36 +40,63 @@ def configure_logging():
     for logger_name in loggers_to_silence:
         logging.getLogger(logger_name).setLevel(logging.WARNING)
 
-def save_chat_history(agent):
+def save_chat_history(agent, agent_name):
     """Saves the current agent's history to a JSON file."""
+    filename = get_history_filename(agent_name)
     try:
         if hasattr(agent, 'get_history'):
             history = agent.get_history()
-            with open(HISTORY_FILE, 'w', encoding='utf-8') as f:
+            with open(filename, 'w', encoding='utf-8') as f:
                 json.dump(history, f, indent=2)
-            print(f"[Chat history saved to {HISTORY_FILE}]")
+            print(f"[Chat history saved to {filename}]")
         else:
             print("[Error: Agent does not support saving history]")
     except Exception as e:
         print(f"[Error saving history: {e}]")
 
-def load_chat_history(agent):
-    """Loads chat history from a JSON file if it exists."""
-    if not os.path.exists(HISTORY_FILE):
+def load_chat_history(agent, agent_name):
+    """Loads chat history from a JSON file if it exists and prints it."""
+    filename = get_history_filename(agent_name)
+    if not os.path.exists(filename):
         return
 
-    print(f"\nFound saved chat history ({HISTORY_FILE}).")
+    print(f"\nFound saved chat history for {agent_name} ({filename}).")
     choice = input("Do you want to load it? (y/n): ").strip().lower()
     if choice != 'y':
         return
 
     try:
-        with open(HISTORY_FILE, 'r', encoding='utf-8') as f:
+        with open(filename, 'r', encoding='utf-8') as f:
             history = json.load(f)
         
         if hasattr(agent, 'load_history'):
             agent.load_history(history)
             print("[Chat history loaded]")
+            
+            # Print the restored history
+            print("\n--- Restored History ---")
+            for msg in history:
+                msg_type = msg.get('type')
+                content = msg.get('content')
+                
+                if msg_type == 'human':
+                    print(f"\nYou: {content}")
+                elif msg_type == 'ai':
+                    # Handle potential list content in AI messages
+                    if isinstance(content, list):
+                        text_parts = []
+                        for part in content:
+                            if isinstance(part, str): text_parts.append(part)
+                            elif isinstance(part, dict) and 'text' in part: text_parts.append(part['text'])
+                        content = "".join(text_parts)
+                    
+                    if content:
+                        print(f"{agent_name}: {content}")
+                    
+                    # If there are tool calls (in tool_calls field), usually content is empty or partial
+                    # We might want to show tool calls if stored, but let's stick to text content for now.
+            print("------------------------\n")
+            
         else:
             print("[Error: Agent does not support loading history]")
     except Exception as e:
@@ -94,6 +124,10 @@ def switch_agent(current_agent_name):
                 print(f"Initializing {matched_name} Agent...")
                 new_agent = AGENT_REGISTRY[matched_name]()
                 print(f"Switched to {matched_name} Agent. History cleared.")
+                
+                # Load history for the new agent
+                load_chat_history(new_agent, matched_name)
+                
                 return matched_name, new_agent
             except Exception as e:
                 print(f"Error initializing {matched_name}: {e}")
@@ -117,8 +151,8 @@ def main():
         agent = ProductOwnerAgent()
         print(f"{current_agent_name} Agent is ready.")
         
-        # Check for saved history
-        load_chat_history(agent)
+        # Check for saved history for the initial agent
+        load_chat_history(agent, current_agent_name)
         
         print("Commands:")
         print("  /agent  - Switch agent")
@@ -156,7 +190,7 @@ def main():
                 break
                 
             if user_input.lower() == "/save":
-                save_chat_history(agent)
+                save_chat_history(agent, current_agent_name)
                 continue
                 
             if user_input.lower() == "/clear":

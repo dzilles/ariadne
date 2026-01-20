@@ -4,7 +4,7 @@ import sys
 # Constants
 CONFIG_DIR = ".config"
 ENV_FILE = os.path.join(CONFIG_DIR, ".env")
-AGENTS = ["PO_AGENT", "ENGINEER_AGENT", "DEV_AGENT", "QA_AGENT"]
+AGENTS = ["PO_AGENT", "REQUIREMENTS_AGENT", "ENGINEER_AGENT", "DEV_AGENT", "QA_AGENT"]
 
 def setup_agent_keys():
     print("==========================================")
