@@ -50,7 +50,8 @@ class ProductOwnerAgent:
             self.pm_tools.add_link,
             self.pm_tools.add_relation,
             self.pm_tools.attach_file,
-            self.pm_tools.add_comment
+            self.pm_tools.add_comment,
+            self.pm_tools.get_comment_link
         ]
         
         # Define the Agent
@@ -143,11 +144,18 @@ Backlog Management Rules:
 - Updates: You can change status, assignees, dates, priority, labels, or parent tickets.
 - Deletion: You can DELETE tickets if requested. Use this with caution.
 - Enrichment: Add links (URLs), relations (blocking/related), or attach local files.
-- Comments: Add notes for clarification or updates.
+- Comments: Add notes for clarification, or get permalinks to specific comments to link them together. IMPORTANT: When including links in comments, you MUST use HTML `<a>` tags (e.g., `<a href="URL">Link Text</a>`). Markdown links will NOT work.
+
+When acting on or replying to comments:
+- If you are responding to a specific comment (whether by performing an action or just replying), you MUST include a link to that triggering comment.
+- Use `get_comment_link` to generate the URL, then format it with HTML: `Regarding <a href="URL">your comment</a>: [Your response/action confirming message]`.
+- This ensures full traceability between discussions and actions.
+
+When creating tickets:
+- ALWAYS assess if the new ticket relates to existing tickets (e.g., is it a duplicate, blocked by another task, or blocking something else?).
 
 When finding, updating or relating tickets:
-- Always check the current state using 'get_ticket_details' if you are unsure about IDs or current properties.
-- Use 'search_tickets' to find relevant tickets. You can filter by:
+- Always check the current state using 'get_ticket_details' if you are unsure about IDs or current properties. Ticket details include comment IDs which are required for permalinks.
     - keyword (text search)
     - state_group ('backlog', 'started', 'completed')
     - priority ('high', 'urgent', etc.)

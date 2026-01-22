@@ -253,6 +253,25 @@ class PlaneInteraction:
         except PlaneAPIError as e:
             return f"Error adding comment: {e.message}"
 
+    def get_comments(self, issue_number: int) -> Any:
+        issue = self.get_issue_by_number(issue_number)
+        if isinstance(issue, str) or not issue: return f"Error: Issue {issue_number} not found."
+        url = f"{self.base_url}/issues/{issue.get('id')}/comments/"
+        try:
+            response = requests.get(url, headers=self._get_headers())
+            data = self._handle_response(response)
+            return data.get("results", []) if isinstance(data, dict) else data
+        except PlaneAPIError as e:
+            return f"Error fetching comments: {e.message}"
+
+    def get_comment_url(self, issue_number: int, comment_id: str) -> str:
+        """Constructs a direct permalink to a comment."""
+        issue = self.get_issue_by_number(issue_number)
+        if isinstance(issue, str) or not issue: return ""
+        
+        web_base = os.getenv("WEB_URL", "http://localhost:8090")
+        return f"{web_base}/{self.ws_slug}/projects/{self.project_id}/issues/{issue.get('id')}#comment-{comment_id}"
+
     def add_issue_link(self, issue_number: int, url: str, title: str = None) -> str:
         issue = self.get_issue_by_number(issue_number)
         if isinstance(issue, str) or not issue: return f"Error: Issue {issue_number} not found."
@@ -262,18 +281,6 @@ class PlaneInteraction:
             requests.post(endpoint, headers=self._get_headers(), json=payload)
             return f"Success: Added link {url} to Issue {issue_number}"
         except Exception as e: return f"Error adding link: {e}"
-
-    def add_issue_relation(self, issue_number: int, related_issue_number: int, relation_type: str = "related") -> str:
-        issue = self.get_issue_by_number(issue_number)
-        if isinstance(issue, str) or not issue: return f"Error: Issue {issue_number} not found."
-        related = self.get_issue_by_number(related_issue_number)
-        if isinstance(related, str) or not related: return f"Error: Related Issue {related_issue_number} not found."
-        endpoint = f"{self.base_url}/issues/{issue.get('id')}/relations/"
-        payload = {"relation": relation_type, "related_issue": related.get("id")}
-        try:
-            requests.post(endpoint, headers=self._get_headers(), json=payload)
-            return f"Success: Marked Issue {issue_number} as '{relation_type}' to Issue {related_issue_number}"
-        except Exception as e: return f"Error adding relation: {e}"
 
     def upload_attachment(self, issue_number: int, file_path: str) -> str:
         if not os.path.exists(file_path): return f"Error: File {file_path} not found."

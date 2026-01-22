@@ -63,14 +63,14 @@ Ariadne includes automation to set up your local development environment.
 1.  **Initialize Configuration:**
     Create your local configuration folder (ignored by git).
     ```bash
-    python scripts/init_config.py
+    python src/init_config.py
     ```
     This creates `.config/.env`. You can edit this file to change the `PLANE_URL` or `LLM_BACKEND`.
 
 2.  **Start Plane:**
     Initialize and start the local Plane Docker instance (listening on port 8090).
     ```bash
-    python scripts/setup_plane.py
+    python src/setup_plane.py
     ```
     Wait ~60 seconds for migrations to finish, then access Plane at `http://localhost:8090`.
 

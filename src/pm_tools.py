@@ -108,6 +108,7 @@ class ProjectManagementAgentTools:
         issue_id = ticket.get('id')
         links = self.client.get_issue_links(issue_id)
         relations = self.client.get_issue_relations(issue_id)
+        comments = self.client.get_comments(ticket_number)
 
         # Robust assignee parsing
         assignees = []
@@ -126,6 +127,17 @@ class ProjectManagementAgentTools:
             elif isinstance(l, str):
                 labels.append(l) # ID
 
+        # Format comments
+        formatted_comments = "None"
+        if isinstance(comments, list) and comments:
+            comment_lines = []
+            for c in comments:
+                actor = c.get('actor_detail', {}).get('display_name', 'Unknown')
+                content = c.get('comment_html', '').replace('<p>', '').replace('</p>', '')
+                cid = c.get('id', 'Unknown')
+                comment_lines.append(f"- [ID: {cid}] {actor}: {content}")
+            formatted_comments = "\n".join(comment_lines)
+
         # Format for agent consumption
         details = f"""
 ID: {ticket.get('sequence_id')}
@@ -143,6 +155,9 @@ Links:
 
 Relations:
 {chr(10).join([f"- {r.get('relation').replace('_', ' ').capitalize()}: #{r.get('related_issue_detail', {}).get('sequence_id')}" for r in relations]) if relations else "None"}
+
+Comments:
+{formatted_comments}
 
 Description:
 {ticket.get('description_html') or ticket.get('description')}
@@ -178,4 +193,11 @@ Description:
         print(f"\n{msg}")
         logger.info(msg)
         return self.client.add_comment(ticket_number, comment)
+
+    def get_comment_link(self, ticket_number: int, comment_id: str) -> str:
+        """Returns a permanent web link to a specific comment."""
+        msg = f"[Tool: get_comment_link called for #{ticket_number}, comment {comment_id}]"
+        print(f"\n{msg}")
+        logger.info(msg)
+        return self.client.get_comment_url(ticket_number, comment_id)
 
