@@ -152,7 +152,9 @@ traceability.lock
 # Local configuration
 .config/
 .plane/
+.ariadne/
 
 .chat_history.json
+.chat_history_PO.json
 
 logs/
