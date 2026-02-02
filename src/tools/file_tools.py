@@ -70,17 +70,31 @@ class FileAgentTools:
         except Exception as e:
             return f"Error listing directory: {e}"
 
-    def search_files(self, pattern: str) -> str:
+    def search_files(self, directory: str, pattern: str) -> str:
         """
-        Finds files matching a glob pattern (e.g., 'docs/**/*.md').
+        Searches for files matching a pattern within a directory.
         """
-        msg = f"[Tool: search_files called with pattern='{pattern}']"
+        msg = f"[Tool: search_files called in '{directory}' for '{pattern}']"
         print(f"\n{msg}")
         logger.info(msg)
         
+        matches = []
         try:
-            # recursive=True allows ** to match subdirectories
-            files = glob.glob(pattern, recursive=True)
-            return "\n".join(files) if files else "No files found matching pattern."
+            for root, _, files in os.walk(directory):
+                for file in files:
+                    if pattern in file:
+                         matches.append(os.path.join(root, file))
+            if not matches:
+                 return "No files found matching pattern."
+            return "\n".join(matches)
         except Exception as e:
             return f"Error searching files: {e}"
+
+    def get_tool_descriptions(self) -> str:
+        return """
+### File System Tools
+*   `read_file(file_path)`: Reads the content of a file.
+*   `write_file(file_path, content)`: Writes content to a file (overwrites if exists).
+*   `list_files(directory)`: Lists files in a directory.
+*   `search_files(directory, pattern)`: Finds files matching a name pattern.
+"""

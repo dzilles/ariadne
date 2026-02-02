@@ -1,6 +1,6 @@
 import logging
 from typing import Optional, List
-from src.plane_client import PlaneInteraction
+from src.tools.plane_client import PlaneInteraction
 
 logger = logging.getLogger(__name__)
 
@@ -133,7 +133,8 @@ class ProjectManagementAgentTools:
             comment_lines = []
             for c in comments:
                 actor = c.get('actor_detail', {}).get('display_name', 'Unknown')
-                content = c.get('comment_html', '').replace('<p>', '').replace('</p>', '')
+                html = c.get('comment_html') or ''
+                content = html.replace('<p>', '').replace('</p>', '')
                 cid = c.get('id', 'Unknown')
                 comment_lines.append(f"- [ID: {cid}] {actor}: {content}")
             formatted_comments = "\n".join(comment_lines)
@@ -154,7 +155,7 @@ Links:
 {chr(10).join([f"- {l.get('title')}: {l.get('url')}" for l in links]) if links else "None"}
 
 Relations:
-{chr(10).join([f"- {r.get('relation').replace('_', ' ').capitalize()}: #{r.get('related_issue_detail', {}).get('sequence_id')}" for r in relations]) if relations else "None"}
+{chr(10).join([f"- {(r.get('relation') or 'unknown').replace('_', ' ').capitalize()}: #{r.get('related_issue_detail', {}).get('sequence_id') if r.get('related_issue_detail') else 'Unknown'}" for r in relations]) if relations else "None"}
 
 Comments:
 {formatted_comments}
@@ -171,9 +172,9 @@ Description:
         logger.info(msg)
         return self.client.add_issue_link(ticket_number, url, title)
 
-    def add_relation(self, ticket_number: int, related_ticket_number: int, relation_type: str = "related") -> str:
+    def add_relation(self, ticket_number: int, related_ticket_number: int, relation_type: str = "relates_to") -> str:
         """
-        Adds a relation between two tickets (e.g., blocking, related).
+        Adds a relation between two tickets (e.g., blocking, relates_to).
         """
         msg = f"[Tool: add_relation called: #{ticket_number} {relation_type} #{related_ticket_number}]"
         print(f"\n{msg}")
@@ -200,4 +201,16 @@ Description:
         print(f"\n{msg}")
         logger.info(msg)
         return self.client.get_comment_url(ticket_number, comment_id)
+
+    def get_tool_descriptions(self) -> str:
+        return """
+### Project Management Tools (Plane)
+*   `get_ticket_details(ticket_number)`: Reads full details (Story, AC, Comments, Links).
+*   `update_ticket(ticket_number, ...)`: Updates status, priority, description, etc.
+*   `add_comment(ticket_number, comment)`: Posts a comment.
+*   `create_ticket(title, description)`: Creates a new ticket.
+*   `add_link(ticket_number, url)`: Adds an external URL link.
+*   `add_relation(ticket, related_ticket, type)`: Links tickets (e.g., 'blocking', 'relates_to').
+*   `search_tickets(keyword, ...)`: Finds tickets.
+"""
 

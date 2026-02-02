@@ -1,7 +1,7 @@
 import os
 import shutil
 
-CONFIG_DIR = ".config"
+CONFIG_DIR = ".ariadne"
 ENV_FILE = os.path.join(CONFIG_DIR, ".env")
 EXAMPLE_ENV_FILE = os.path.join(CONFIG_DIR, ".env.example")
 

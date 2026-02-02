@@ -23,12 +23,12 @@ class PlaneInteraction:
         """
         Initialize the PlaneInteraction class by loading configuration.
         """
-        from src.config import settings
+        from src.configuration.config import settings
         
-        self.api_url = settings.get("PLANE_API_URL") or os.getenv("PLANE_API_URL", "http://localhost:8091/api/v1")
-        self.api_key = api_key or settings.get("PLANE_API_TOKEN") or os.getenv("PLANE_API_KEY")
-        self.ws_slug = settings.get("PLANE_WS_SLUG") or os.getenv("PLANE_WS_SLUG")
-        self.project_id = settings.get("PLANE_PROJECT_ID") or os.getenv("PLANE_PROJECT_ID")
+        self.api_url = settings.plane_api_url
+        self.api_key = api_key or settings.plane_api_token or os.getenv("PLANE_API_KEY")
+        self.ws_slug = settings.plane_ws_slug or os.getenv("PLANE_WS_SLUG")
+        self.project_id = settings.plane_project_id or os.getenv("PLANE_PROJECT_ID")
         
         # Caches
         self._state_cache: Dict[str, str] = {}
@@ -281,6 +281,28 @@ class PlaneInteraction:
             requests.post(endpoint, headers=self._get_headers(), json=payload)
             return f"Success: Added link {url} to Issue {issue_number}"
         except Exception as e: return f"Error adding link: {e}"
+
+    def add_issue_relation(self, issue_number: int, related_issue_number: int, relation_type: str = "relates_to") -> str:
+        issue = self.get_issue_by_number(issue_number)
+        if isinstance(issue, str) or not issue: return f"Error: Source Issue {issue_number} not found."
+
+        related_issue = self.get_issue_by_number(related_issue_number)
+        if isinstance(related_issue, str) or not related_issue: return f"Error: Related Issue {related_issue_number} not found."
+
+        url = f"{self.base_url}/issues/{issue.get('id')}/relations/"
+        payload = {
+            "related_issue": related_issue.get("id"),
+            "relation_type": relation_type
+        }
+        
+        try:
+            response = requests.post(url, headers=self._get_headers(), json=payload)
+            self._handle_response(response)
+            return f"Success: Added relation '{relation_type}' between {issue_number} and {related_issue_number}"
+        except PlaneAPIError as e:
+            return f"Error adding relation: {e.message}"
+        except Exception as e:
+            return f"Error adding relation: {e}"
 
     def upload_attachment(self, issue_number: int, file_path: str) -> str:
         if not os.path.exists(file_path): return f"Error: File {file_path} not found."

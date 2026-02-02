@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch, MagicMock
 import os
-from src.plane_client import PlaneInteraction, PlaneAPIError
+from src.tools.plane_client import PlaneInteraction, PlaneAPIError
 
 class TestPlaneInteraction(unittest.TestCase):
 

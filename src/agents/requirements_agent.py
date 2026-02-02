@@ -4,10 +4,12 @@ from typing import List, Any
 from langchain_core.messages import messages_to_dict, messages_from_dict, HumanMessage
 from langgraph.prebuilt import create_react_agent
 
-from src.llm_factory import get_llm, load_env_config
-from src.plane_client import PlaneInteraction
-from src.pm_tools import ProjectManagementAgentTools
-from src.file_tools import FileAgentTools
+from src.configuration.llm_factory import get_llm
+from src.tools.plane_client import PlaneInteraction
+from src.tools.pm_tools import ProjectManagementAgentTools
+from src.tools.file_tools import FileAgentTools
+from src.tools.git_tools import GitAgentTools
+from src.configuration.config import settings
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -23,12 +25,12 @@ class RequirementsAgent:
         """
         Initialize the Requirements Agent.
         """
-        load_env_config()
         self.llm = get_llm()
 
         # Load Agent-Specific Plane Key
-        api_key = os.getenv("REQUIREMENTS_AGENT_API_KEY") or os.getenv("PO_AGENT_API_KEY")
+        api_key = settings.requirements_agent_api_key
         if not api_key:
+            api_key = settings.plane_api_token
             logger.warning("REQUIREMENTS_AGENT_API_KEY not found. Using fallback.")
 
         # Initialize Tools
@@ -36,6 +38,7 @@ class RequirementsAgent:
             self.client = PlaneInteraction(api_key=api_key)
             self.pm_tools = ProjectManagementAgentTools(self.client)
             self.file_tools = FileAgentTools()
+            self.git_tools = GitAgentTools()
         except Exception as e:
             logger.error(f"Failed to initialize tools: {e}")
             raise
@@ -53,11 +56,27 @@ class RequirementsAgent:
             # Linking/Updating
             self.pm_tools.add_comment,
             self.pm_tools.add_link,
+            self.pm_tools.update_ticket,
+            self.pm_tools.attach_file,
             
             # Analysis/Search
             self.pm_tools.search_tickets,
-            self.file_tools.search_files
+            self.file_tools.search_files,
+
+            # Git Operations
+            self.git_tools.get_status,
+            self.git_tools.get_current_branch,
+            self.git_tools.create_branch,
+            self.git_tools.add_files,
+            self.git_tools.commit_changes
         ]
+
+        # Collect Tool Documentation
+        self.tool_docs = "\n".join([
+            self.pm_tools.get_tool_descriptions(),
+            self.file_tools.get_tool_descriptions(),
+            self.git_tools.get_tool_descriptions()
+        ])
 
         # Define the Agent
         self.agent_executor = create_react_agent(self.llm, self.tools, prompt=self._get_system_message())
@@ -124,20 +143,33 @@ class RequirementsAgent:
         return final_str
 
     def _get_system_message(self) -> str:
-        return """You are a Senior Requirements Engineer in the Ariadne V-Model lifecycle.
+        return f"""You are a Senior Requirements Engineer in the Ariadne V-Model lifecycle.
 Your goal is to analyze User Stories from Plane tickets and expand them into detailed Requirement Documents.
 
 ### Workflow:
-1.  **Analyze Ticket:** When asked to process a ticket (e.g., #25), use `get_ticket_details` to read the User Story and Acceptance Criteria.
-2.  **Gap Analysis:** Critically evaluate the information. Is it detailed enough to write a strict specification?
+1.  **Analyze Ticket:** 
+    *   When asked to process a ticket (e.g., #25), use `get_ticket_details` to read the User Story and Acceptance Criteria.
+    *   **Status Update:** Immediately update the ticket status to 'In Progress' to indicate work has started.
+2.  **Check Comments:** **CRITICAL:** Review the ticket comments. If there are any open questions, unresolved feedback, or "todo" items, you MUST address them before proceeding.
+3.  **Git Branching:** Before creating any files, check your current branch. If you are on 'main', create a new feature branch named `req/ticket-{{id}}`.
+4.  **Gap Analysis:** Critically evaluate the information. Is it detailed enough to write a strict specification?
     *   *If vague:* Do NOT draft the document yet. Identify specific questions (e.g., "What specific tools should the agent use?", "What is the expected output format?").
     *   *Action:* Use `add_comment` to post these questions on the ticket to the Product Owner/User. Inform the user you are waiting for clarification.
-3.  **Draft Requirements (Only if detailed):**
+4.  **Draft Requirements (Only if detailed):**
     *   If the ticket has sufficient detail OR if the user explicitly instructs you to "proceed with assumptions", create the document.
-    *   Filename: `docs/requirements/REQ-{ticket_id}.md`
+    *   Filename: `docs/requirements/REQ-{{ticket_id}}.md`
     *   Content must include: Introduction, User Requirements (UR), Functional Requirements (FR), Non-Functional Requirements (NFR), Assumptions.
-4.  **Save Document:** Use `write_file` to save the content.
-5.  **Link Ticket:** Use `add_comment` on the original ticket to confirm completion and link to the file path.
+5.  **Save & Version:** 
+    *   Use `write_file` to save the content.
+    *   Use `add_files` and `commit_changes` to stage and commit the new requirement document to your feature branch.
+6.  **Finalize Ticket:** 
+    *   Update the **Ticket Description** using `update_ticket`. The new description must include the original User Story PLUS a "Traceability" section containing:
+        *   **Git Branch:** <branch_name>
+        *   **Latest Commit:** <commit_hash>
+        *   **Files Changed:** A list of files created/modified.
+        *   **Summary:** A short description of the changes made.
+    *   Use `update_ticket` to set the status to "Ready for Review".
+    *   Use `add_comment` to notify the user that the requirement gathering is complete.
 
 ### Guiding Principles:
 *   **Ask, don't guess:** Prefer asking for clarification over making broad assumptions.
@@ -147,6 +179,9 @@ Your goal is to analyze User Stories from Plane tickets and expand them into det
     *   **Verifiable:** It must be possible to write a definitive test case (Pass/Fail) for the requirement.
     *   **Necessary:** Every requirement must trace back to a business need or user value.
 *   Do NOT write code implementation details. Focus on WHAT, not HOW.
+
+### Available Tools:
+{self.tool_docs}
 """
 
 if __name__ == "__main__":

@@ -4,9 +4,11 @@ from typing import List, Tuple, Any
 from langchain_core.messages import messages_to_dict, messages_from_dict, HumanMessage
 
 from langgraph.prebuilt import create_react_agent
-from src.llm_factory import get_llm, load_env_config
-from src.plane_client import PlaneInteraction
-from src.pm_tools import ProjectManagementAgentTools
+from src.configuration.llm_factory import get_llm
+from src.tools.plane_client import PlaneInteraction
+from src.tools.pm_tools import ProjectManagementAgentTools
+from src.tools.file_tools import FileAgentTools
+from src.configuration.config import settings
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -22,19 +24,22 @@ class ProductOwnerAgent:
         """
         Initialize the Product Owner Agent with LLM and project management tools.
         """
-        load_env_config()
         self.llm = get_llm()
         
         # Load Agent-Specific Plane Key (mapped to general PM backend)
-        po_api_key = os.getenv("PO_AGENT_API_KEY")
+        po_api_key = settings.po_agent_api_key
         if not po_api_key:
-            logger.error("PO_AGENT_API_KEY not found in environment.")
-            raise ValueError("PO_AGENT_API_KEY is required.")
+            # Fallback to general token
+            po_api_key = settings.plane_api_token
+            if not po_api_key:
+                logger.error("PO_AGENT_API_KEY and PLANE_API_TOKEN not found.")
+                raise ValueError("API Key is required.")
 
         # Initialize Backend Client
         try:
             self.client = PlaneInteraction(api_key=po_api_key)
             self.pm_tools = ProjectManagementAgentTools(self.client)
+            self.file_tools = FileAgentTools()
         except Exception as e:
             logger.error(f"Failed to initialize tools: {e}")
             raise
@@ -51,9 +56,17 @@ class ProductOwnerAgent:
             self.pm_tools.add_relation,
             self.pm_tools.attach_file,
             self.pm_tools.add_comment,
-            self.pm_tools.get_comment_link
+            self.pm_tools.get_comment_link,
+            # PO needs to read files (e.g., existing specs) to answer questions
+            self.file_tools.read_file,
+            self.file_tools.list_files
         ]
         
+        self.tool_docs = "\n".join([
+            self.pm_tools.get_tool_descriptions(),
+            self.file_tools.get_tool_descriptions()
+        ])
+
         # Define the Agent
         self.agent_executor = create_react_agent(self.llm, self.tools, prompt=self._get_system_message())
         
@@ -130,13 +143,14 @@ class ProductOwnerAgent:
         """
         Returns the system message defining the agent persona and tool usage.
         """
-        return """You are a strict and professional Product Owner. 
+        return f"""You are a strict and professional Product Owner. 
 Your goal is to manage the product backlog and translate requirements into structured tickets.
 
 Core Instructions:
 1. Analyze user input. Answer questions directly or ask for clarification if a request is vague.
-2. When creating/updating tickets, follow professional Agile standards.
+2. When creating/updating tickets, follow professional Agile standards. **Status Management:** Update ticket status to 'In Progress' when working, and 'Ready for Review' or 'In Review' as appropriate.
 3. You have access to various tools to interact with the project management system.
+4. **CRITICAL:** Always check ticket comments for any open points, questions, or pending feedback. You MUST resolve these open items before marking any task as complete.
 
 Backlog Management Rules:
 - Create Ticket: For new features or bugs. Use structured HTML for descriptions (User Story + Acceptance Criteria).
@@ -164,6 +178,9 @@ When finding, updating or relating tickets:
     - specific state name (e.g. "In Progress")
 
 Always report the exact result of your actions to the user.
+
+### Available Tools:
+{self.tool_docs}
 """
 
     def process_request(self, request: str) -> str:

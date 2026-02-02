@@ -11,10 +11,10 @@ from prompt_toolkit.completion import WordCompleter
 # Ensure src module can be imported
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.po_agent import ProductOwnerAgent
-from src.engineer_agent import EngineerAgent
-from src.requirements_agent import RequirementsAgent
-from src.logging_config import setup_logging
+from src.agents.po_agent import ProductOwnerAgent
+from src.agents.engineer_agent import EngineerAgent
+from src.agents.requirements_agent import RequirementsAgent
+from src.configuration.logging_config import setup_logging
 
 # Agent Registry: Name -> Class
 AGENT_REGISTRY = {
@@ -34,8 +34,8 @@ def configure_logging():
         "google",
         "google_genai._api_client", # Silence Google GenAI retry logs
         "urllib3",
-        "src.llm_factory",  # Silence LLM factory logs
-        "src.config"
+        "src.configuration.llm_factory",  # Silence LLM factory logs
+        "src.configuration.config"
     ]
     for logger_name in loggers_to_silence:
         logging.getLogger(logger_name).setLevel(logging.WARNING)

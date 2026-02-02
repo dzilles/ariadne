@@ -23,9 +23,6 @@ def main():
     complete_parser = subparsers.add_parser("complete", help="Finalize a ticket")
     complete_parser.add_argument("--ticket", required=True, help="Plane ticket ID")
 
-    # Start command
-    subparsers.add_parser("start", help="Start the Plane Docker environment")
-
     # Chat command
     subparsers.add_parser("chat", help="Start the interactive agent chat interface")
 
@@ -41,16 +38,8 @@ def main():
     elif args.command == "complete":
         print(f"Completing lifecycle for ticket {args.ticket}...")
         # Implementation logic will go here
-    elif args.command == "start":
-        print("Starting Plane environment...")
-        import subprocess
-        try:
-            subprocess.run([sys.executable, "src/setup_plane.py"], check=True)
-        except subprocess.CalledProcessError:
-            print("Failed to start Plane environment.")
-            sys.exit(1)
     elif args.command == "chat":
-        from src.user_interface import main as chat_main
+        from src.interface.user_interface import main as chat_main
         chat_main()
     else:
         parser.print_help()

@@ -2,7 +2,7 @@ import os
 import sys
 
 # Constants
-CONFIG_DIR = ".config"
+CONFIG_DIR = ".ariadne"
 ENV_FILE = os.path.join(CONFIG_DIR, ".env")
 AGENTS = ["PO_AGENT", "REQUIREMENTS_AGENT", "ENGINEER_AGENT", "DEV_AGENT", "QA_AGENT"]
 
