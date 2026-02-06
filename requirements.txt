@@ -14,3 +14,9 @@ langchain-ollama
 
 prompt_toolkit
 langgraph
+
+# TUI (enhanced terminal interface)
+textual>=0.50.0
+rich>=13.0.0
+pydantic>=2.0.0
+pydantic-settings>=2.0.0

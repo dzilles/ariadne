@@ -1,6 +1,3 @@
-import os
-import glob
-import csv
 import logging
 from typing import Optional, Any, Dict, Tuple
 from pydantic import Field
@@ -47,19 +44,15 @@ class Settings(BaseSettings):
     plane_ws_slug: Optional[str] = Field(None, validation_alias="PLANE_WS_SLUG")
     plane_project_id: Optional[str] = Field(None, validation_alias="PLANE_PROJECT_ID")
     
-    plane_api_token: Optional[str] = Field(None, validation_alias="PLANE_API_TOKEN")
     raw_plane_api_url: Optional[str] = Field(None, validation_alias="PLANE_API_URL")
-    plane_api_rate_limit: str = Field(validation_alias="API_KEY_RATE_LIMIT")
+    plane_api_rate_limit: Optional[str] = Field(None, validation_alias="API_KEY_RATE_LIMIT")
 
-    # Agent Specific Keys
-    po_agent_api_key: Optional[str] = Field(None, validation_alias="PO_AGENT_API_KEY")
-    requirements_agent_api_key: Optional[str] = Field(None, validation_alias="REQUIREMENTS_AGENT_API_KEY")
-    engineer_agent_api_key: Optional[str] = Field(None, validation_alias="ENGINEER_AGENT_API_KEY")
+    # LLM Configuration (non-secret)
+    model: Optional[str] = Field(None, validation_alias="MODEL")
 
-    # LLM Keys
-    google_api_key: Optional[str] = None
-    gemini_model: Optional[str] = None
-    ollama_model: Optional[str] = None
+    # TUI Configuration
+    verbose: bool = Field(False, description="Enable verbose output mode")
+    tool_approval: bool = Field(True, description="Require approval before tool calls")
 
     @classmethod
     def settings_customise_sources(
@@ -83,30 +76,5 @@ class Settings(BaseSettings):
         if self.raw_plane_api_url:
             return self.raw_plane_api_url
         return f"{self.plane_url}/api/v1"
-
-    def model_post_init(self, __context):
-        print(f"DEBUG INIT: google_api_key={self.google_api_key}")
-        if not self.plane_api_token:
-            self._load_token_from_csv()
-
-    def _load_token_from_csv(self):
-        search_dirs = [
-            os.path.join(os.getcwd(), ".plane"),
-            os.path.join(os.getcwd(), ".ariadne")
-        ]
-        secret_files = []
-        for d in search_dirs:
-            if os.path.exists(d):
-                secret_files.extend(glob.glob(os.path.join(d, "secret-key-*.csv")))
-        if not secret_files: return
-        latest_secret_file = max(secret_files, key=os.path.getctime)
-        try:
-            with open(latest_secret_file, "r", newline="") as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    if "Secret key" in row and row["Secret key"]:
-                        self.plane_api_token = row["Secret key"]
-                        break
-        except Exception: pass
 
 settings = Settings()

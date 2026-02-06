@@ -1,14 +1,15 @@
 import os
 import logging
 from typing import List, Tuple, Any
-from langchain_core.messages import messages_to_dict, messages_from_dict, HumanMessage
+from langchain_core.messages import messages_to_dict, messages_from_dict, HumanMessage, AIMessage
 
 from langgraph.prebuilt import create_react_agent
 from src.configuration.llm_factory import get_llm
 from src.tools.plane_client import PlaneInteraction
 from src.tools.pm_tools import ProjectManagementAgentTools
 from src.tools.file_tools import FileAgentTools
-from src.configuration.config import settings
+from src.tools.tool_wrapper import wrap_tools_with_error_handling
+from src.configuration.vault import Vault
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -26,14 +27,13 @@ class ProductOwnerAgent:
         """
         self.llm = get_llm()
         
-        # Load Agent-Specific Plane Key (mapped to general PM backend)
-        po_api_key = settings.po_agent_api_key
+        # Load Agent-Specific Plane Key from Vault
+        po_api_key = Vault.get_secret("PO_AGENT_API_KEY")
         if not po_api_key:
             # Fallback to general token
-            po_api_key = settings.plane_api_token
+            po_api_key = Vault.get_secret("PLANE_API_TOKEN")
             if not po_api_key:
-                logger.error("PO_AGENT_API_KEY and PLANE_API_TOKEN not found.")
-                raise ValueError("API Key is required.")
+                raise ValueError("PLANE_API_TOKEN required. Use '/secret PLANE_API_TOKEN <key>'")
 
         # Initialize Backend Client
         try:
@@ -44,8 +44,8 @@ class ProductOwnerAgent:
             logger.error(f"Failed to initialize tools: {e}")
             raise
 
-        # Register Tools from pm_tools instance
-        self.tools = [
+        # Register Tools from pm_tools instance (wrapped for error handling)
+        self.tools = wrap_tools_with_error_handling([
             self.pm_tools.create_ticket,
             self.pm_tools.create_sub_task,
             self.pm_tools.update_ticket,
@@ -60,7 +60,7 @@ class ProductOwnerAgent:
             # PO needs to read files (e.g., existing specs) to answer questions
             self.file_tools.read_file,
             self.file_tools.list_files
-        ]
+        ])
         
         self.tool_docs = "\n".join([
             self.pm_tools.get_tool_descriptions(),
@@ -106,7 +106,10 @@ class ProductOwnerAgent:
             result = self.agent_executor.invoke(inputs)
         except Exception as e:
             logger.error(f"Agent execution failed: {e}")
-            return f"[System Error: The AI agent encountered an issue: {str(e)}]"
+            error_msg = f"[System Error: {str(e)}]"
+            # Add error to history so LLM has context on next turn
+            self.chat_history.append(AIMessage(content=error_msg))
+            return error_msg
         
         # Update history
         self.chat_history = result["messages"]

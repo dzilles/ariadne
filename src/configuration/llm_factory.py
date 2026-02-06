@@ -1,10 +1,10 @@
 import os
 import logging
-from typing import Union
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_ollama import ChatOllama
 from src.configuration.config import settings
+from src.configuration.vault import Vault
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -23,21 +23,17 @@ def get_llm() -> BaseChatModel:
     provider = settings.llm_backend.lower()
     
     if provider == "gemini":
-        api_key = settings.google_api_key
-        # Fallback to env var if not in settings (though settings should handle env var)
-        if not api_key:
-             api_key = os.getenv("GOOGLE_API_KEY")
+        api_key = Vault.get_secret("LLM_API_KEY")
+        model = settings.model
 
-        model = settings.gemini_model
-        
         if not api_key:
-            raise ValueError("GOOGLE_API_KEY is required for Gemini provider. Use 'python ariadne.py secret set GOOGLE_API_KEY <key>'")
-        
+            raise ValueError("LLM_API_KEY is required for Gemini. Use '/secret LLM_API_KEY <key>'")
+
         if not model:
-            raise ValueError("GEMINI_MODEL is not configured. Please set it in your .env file.")
-            
+            raise ValueError("MODEL is not configured. Use '/settings model <model_name>'")
+
         logger.info(f"Initializing Gemini LLM with model: {model}")
-        
+
         return ChatGoogleGenerativeAI(
             model=model,
             google_api_key=api_key,
@@ -45,13 +41,13 @@ def get_llm() -> BaseChatModel:
             max_retries=10,
             request_timeout=60
         )
-        
+
     elif provider == "ollama":
         base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-        model = settings.ollama_model
-        
+        model = settings.model
+
         if not model:
-            raise ValueError("OLLAMA_MODEL is not configured. Please set it in your .env file.")
+            raise ValueError("MODEL is not configured. Use '/settings model <model_name>'")
 
         logger.info(f"Initializing Ollama LLM with model: {model} at {base_url}")
         return ChatOllama(

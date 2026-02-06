@@ -1,6 +1,6 @@
 import logging
 from typing import Optional, List
-from src.tools.plane_client import PlaneInteraction
+from src.tools.plane_client import PlaneInteraction, PlaneAPIError
 
 logger = logging.getLogger(__name__)
 
@@ -102,8 +102,8 @@ class ProjectManagementAgentTools:
         print(f"\n{msg}")
         logger.info(msg)
         ticket = self.client.get_issue_by_number(ticket_number)
-        if isinstance(ticket, str): return ticket
-        if not ticket: return f"Ticket {ticket_number} not found."
+        if not ticket:
+            raise PlaneAPIError(404, f"Ticket {ticket_number} not found")
              
         issue_id = ticket.get('id')
         links = self.client.get_issue_links(issue_id)

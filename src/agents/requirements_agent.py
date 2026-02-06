@@ -1,7 +1,7 @@
 import os
 import logging
 from typing import List, Any
-from langchain_core.messages import messages_to_dict, messages_from_dict, HumanMessage
+from langchain_core.messages import messages_to_dict, messages_from_dict, HumanMessage, AIMessage
 from langgraph.prebuilt import create_react_agent
 
 from src.configuration.llm_factory import get_llm
@@ -9,7 +9,8 @@ from src.tools.plane_client import PlaneInteraction
 from src.tools.pm_tools import ProjectManagementAgentTools
 from src.tools.file_tools import FileAgentTools
 from src.tools.git_tools import GitAgentTools
-from src.configuration.config import settings
+from src.tools.tool_wrapper import wrap_tools_with_error_handling
+from src.configuration.vault import Vault
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -27,11 +28,12 @@ class RequirementsAgent:
         """
         self.llm = get_llm()
 
-        # Load Agent-Specific Plane Key
-        api_key = settings.requirements_agent_api_key
+        # Load Agent-Specific Plane Key from Vault
+        api_key = Vault.get_secret("REQUIREMENTS_AGENT_API_KEY")
         if not api_key:
-            api_key = settings.plane_api_token
-            logger.warning("REQUIREMENTS_AGENT_API_KEY not found. Using fallback.")
+            api_key = Vault.get_secret("PLANE_API_TOKEN")
+        if not api_key:
+            raise ValueError("PLANE_API_TOKEN required. Use '/secret PLANE_API_TOKEN <key>'")
 
         # Initialize Tools
         try:
@@ -43,22 +45,22 @@ class RequirementsAgent:
             logger.error(f"Failed to initialize tools: {e}")
             raise
 
-        # Register Tools
-        self.tools = [
+        # Register Tools (wrapped for error handling)
+        self.tools = wrap_tools_with_error_handling([
             # Reading Inputs
             self.pm_tools.get_ticket_details,
             self.file_tools.read_file,
             self.file_tools.list_files,
-            
+
             # Writing Outputs
             self.file_tools.write_file,
-            
+
             # Linking/Updating
             self.pm_tools.add_comment,
             self.pm_tools.add_link,
             self.pm_tools.update_ticket,
             self.pm_tools.attach_file,
-            
+
             # Analysis/Search
             self.pm_tools.search_tickets,
             self.file_tools.search_files,
@@ -69,7 +71,7 @@ class RequirementsAgent:
             self.git_tools.create_branch,
             self.git_tools.add_files,
             self.git_tools.commit_changes
-        ]
+        ])
 
         # Collect Tool Documentation
         self.tool_docs = "\n".join([
@@ -80,7 +82,7 @@ class RequirementsAgent:
 
         # Define the Agent
         self.agent_executor = create_react_agent(self.llm, self.tools, prompt=self._get_system_message())
-        
+
         # Initialize chat history
         self.chat_history = []
 
@@ -114,7 +116,10 @@ class RequirementsAgent:
             result = self.agent_executor.invoke(inputs)
         except Exception as e:
             logger.error(f"Agent execution failed: {e}")
-            return f"[System Error: The AI agent encountered an issue: {str(e)}]"
+            error_msg = f"[System Error: {str(e)}]"
+            # Add error to history so LLM has context on next turn
+            self.chat_history.append(AIMessage(content=error_msg))
+            return error_msg
         
         self.chat_history = result["messages"]
         last_msg = self.chat_history[-1]

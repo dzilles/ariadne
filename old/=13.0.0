@@ -1,0 +1,13 @@
+Requirement already satisfied: textual in ./.venv/lib/python3.14/site-packages (7.5.0)
+Requirement already satisfied: rich in ./.venv/lib/python3.14/site-packages (14.3.2)
+Requirement already satisfied: markdown-it-py>=2.1.0 in ./.venv/lib/python3.14/site-packages (from markdown-it-py[linkify]>=2.1.0->textual) (4.0.0)
+Requirement already satisfied: mdit-py-plugins in ./.venv/lib/python3.14/site-packages (from textual) (0.5.0)
+Requirement already satisfied: platformdirs<5,>=3.6.0 in ./.venv/lib/python3.14/site-packages (from textual) (4.5.1)
+Requirement already satisfied: pygments<3.0.0,>=2.19.2 in ./.venv/lib/python3.14/site-packages (from textual) (2.19.2)
+Requirement already satisfied: typing-extensions<5.0.0,>=4.4.0 in ./.venv/lib/python3.14/site-packages (from textual) (4.15.0)
+Requirement already satisfied: mdurl~=0.1 in ./.venv/lib/python3.14/site-packages (from markdown-it-py>=2.1.0->markdown-it-py[linkify]>=2.1.0->textual) (0.1.2)
+Requirement already satisfied: linkify-it-py<3,>=1 in ./.venv/lib/python3.14/site-packages (from markdown-it-py[linkify]>=2.1.0->textual) (2.0.3)
+Requirement already satisfied: uc-micro-py in ./.venv/lib/python3.14/site-packages (from linkify-it-py<3,>=1->markdown-it-py[linkify]>=2.1.0->textual) (1.0.3)
+
+[notice] A new release of pip is available: 25.3 -> 26.0
+[notice] To update, run: /home/dzilles/Documents/ariadne/.venv/bin/python -m pip install --upgrade pip

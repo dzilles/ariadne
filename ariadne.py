@@ -26,6 +26,9 @@ def main():
     # Chat command
     subparsers.add_parser("chat", help="Start the interactive agent chat interface")
 
+    # TUI command (enhanced terminal UI)
+    subparsers.add_parser("tui", help="Launch enhanced terminal UI")
+
     args = parser.parse_args()
 
     if args.command == "phase":
@@ -41,6 +44,9 @@ def main():
     elif args.command == "chat":
         from src.interface.user_interface import main as chat_main
         chat_main()
+    elif args.command == "tui":
+        from src.interface.ariadne_tui import main as tui_main
+        tui_main()
     else:
         parser.print_help()
 

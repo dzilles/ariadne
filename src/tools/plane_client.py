@@ -135,77 +135,65 @@ class PlaneInteraction:
     def get_issue_by_number(self, sequence_id: int) -> Optional[Dict[str, Any]]:
         url = f"{self.base_url}/issues/"
         params = {"sequence_id": sequence_id}
-        try:
-            response = requests.get(url, headers=self._get_headers(), params=params)
-            data = self._handle_response(response)
-            results = data.get("results", []) if isinstance(data, dict) else data
-            for issue in results:
-                if issue.get("sequence_id") == sequence_id:
-                    return issue
-            msg = f"Issue with sequence ID {sequence_id} not found."
-            logger.info(msg)
-            return msg
-        except PlaneAPIError as e:
-            return f"Error fetching issue {sequence_id}: {e.message}"
+        response = requests.get(url, headers=self._get_headers(), params=params)
+        data = self._handle_response(response)
+        results = data.get("results", []) if isinstance(data, dict) else data
+        for issue in results:
+            if issue.get("sequence_id") == sequence_id:
+                return issue
+        return None
 
     def create_issue(self, title: str, description: str, priority: str = "medium", type: str = "Issue") -> str:
         url = f"{self.base_url}/issues/"
         payload = {"name": title, "description_html": f"<p>{description}</p>", "priority": priority.lower()}
         with self._lock:
             logger.info(f"Creating issue: {title}")
-            try:
-                response = requests.post(url, headers=self._get_headers(), json=payload)
-                data = self._handle_response(response)
-                time.sleep(2)
-                return f"Success: Created Ticket {data.get('sequence_id')} - '{data.get('name')}' (ID: {data.get('id')})"
-            except PlaneAPIError as e:
-                return f"Error creating issue: {e.message}"
+            response = requests.post(url, headers=self._get_headers(), json=payload)
+            data = self._handle_response(response)
+            time.sleep(2)
+            return f"Success: Created Ticket {data.get('sequence_id')} - '{data.get('name')}' (ID: {data.get('id')})"
 
     def create_sub_issue(self, parent_issue_number: int, title: str, description: str) -> str:
         with self._lock:
             parent_issue = self.get_issue_by_number(parent_issue_number)
-            if isinstance(parent_issue, str) or not parent_issue:
-                 return f"Error: Parent issue {parent_issue_number} not found."
+            if not parent_issue:
+                raise PlaneAPIError(404, f"Parent issue {parent_issue_number} not found")
             parent_id = parent_issue.get("id")
             url = f"{self.base_url}/issues/"
             payload = {"name": title, "description_html": f"<p>{description}</p>", "parent": parent_id}
             logger.info(f"Creating sub-issue for parent {parent_issue_number}: {title}")
-            try:
-                response = requests.post(url, headers=self._get_headers(), json=payload)
-                data = self._handle_response(response)
-                time.sleep(2)
-                return f"Success: Created Sub-Ticket {data.get('sequence_id')} - '{data.get('name')}' under Parent {parent_issue_number}"
-            except PlaneAPIError as e:
-                return f"Error creating sub-issue: {e.message}"
+            response = requests.post(url, headers=self._get_headers(), json=payload)
+            data = self._handle_response(response)
+            time.sleep(2)
+            return f"Success: Created Sub-Ticket {data.get('sequence_id')} - '{data.get('name')}' under Parent {parent_issue_number}"
 
     def delete_issue(self, issue_number: int) -> str:
         """
         Deletes an issue by its sequence ID.
         """
         issue = self.get_issue_by_number(issue_number)
-        if isinstance(issue, str) or not issue: return f"Error: Issue {issue_number} not found."
+        if not issue:
+            raise PlaneAPIError(404, f"Issue {issue_number} not found")
         issue_id = issue.get("id")
-        
+
         url = f"{self.base_url}/issues/{issue_id}/"
-        
+
         with self._lock:
             logger.info(f"Deleting issue: {issue_number}")
-            try:
-                response = requests.delete(url, headers=self._get_headers())
-                # 204 No Content is success for delete usually
-                if 200 <= response.status_code < 300:
-                    return f"Success: Deleted Issue {issue_number}"
-                else:
-                    logger.error(f"API request failed: {response.status_code} - {response.text}")
-                    return f"Error deleting issue: {response.status_code} - {response.text}"
-            except Exception as e:
-                return f"Error deleting issue: {e}"
+            response = requests.delete(url, headers=self._get_headers())
+            # 204 No Content is success for delete usually
+            if 200 <= response.status_code < 300:
+                return f"Success: Deleted Issue {issue_number}"
+            else:
+                logger.error(f"API request failed: {response.status_code} - {response.text}")
+                raise PlaneAPIError(response.status_code, response.text)
 
     def update_issue(self, issue_number: int, title: str = None, description: str = None, priority: str = None,
                      state: str = None, assignees: List[str] = None, start_date: str = None, due_date: str = None,
                      parent_issue_number: int = None, labels: List[str] = None) -> str:
         issue = self.get_issue_by_number(issue_number)
-        if isinstance(issue, str) or not issue: return f"Error: Issue {issue_number} not found."
+        if not issue:
+            raise PlaneAPIError(404, f"Issue {issue_number} not found")
         issue_id = issue.get("id")
         url = f"{self.base_url}/issues/{issue_id}/"
         payload = {}
@@ -217,106 +205,99 @@ class PlaneInteraction:
         if state:
             s_id = self._get_state_id(state)
             if s_id: payload["state"] = s_id
-            else: return f"Error: State '{state}' not found."
+            else: raise PlaneAPIError(404, f"State '{state}' not found")
         if assignees is not None:
             m_ids = [self._get_member_id(a) for a in assignees]
-            if None in m_ids: return f"Error: One or more members not found."
+            if None in m_ids: raise PlaneAPIError(404, "One or more members not found")
             payload["assignees"] = m_ids
         if labels is not None:
             l_ids = [self._get_label_id(l) for l in labels]
-            if None in l_ids: return f"Error: One or more labels not found."
+            if None in l_ids: raise PlaneAPIError(404, "One or more labels not found")
             payload["labels"] = l_ids
         if parent_issue_number is not None:
             p_issue = self.get_issue_by_number(parent_issue_number)
-            if isinstance(p_issue, str) or not p_issue: return f"Error: Parent Issue {parent_issue_number} not found."
+            if not p_issue: raise PlaneAPIError(404, f"Parent Issue {parent_issue_number} not found")
             payload["parent"] = p_issue.get("id")
-        if not payload: return "Error: No fields provided to update."
-        try:
-            response = requests.patch(url, headers=self._get_headers(), json=payload)
-            self._handle_response(response)
-            return f"Success: Updated Issue {issue_number}"
-        except PlaneAPIError as e:
-            return f"Error updating issue: {e.message}"
+        if not payload: raise ValueError("No fields provided to update")
+        response = requests.patch(url, headers=self._get_headers(), json=payload)
+        self._handle_response(response)
+        return f"Success: Updated Issue {issue_number}"
 
     def update_issue_status(self, issue_number: int, status_name: str) -> str:
         return self.update_issue(issue_number, state=status_name)
 
     def add_comment(self, issue_number: int, comment_text: str) -> str:
         issue = self.get_issue_by_number(issue_number)
-        if isinstance(issue, str) or not issue: return f"Error: Issue {issue_number} not found."
+        if not issue:
+            raise PlaneAPIError(404, f"Issue {issue_number} not found")
         url = f"{self.base_url}/issues/{issue.get('id')}/comments/"
         payload = {"comment_html": f"<p>{comment_text}</p>"}
-        try:
-            response = requests.post(url, headers=self._get_headers(), json=payload)
-            self._handle_response(response)
-            return f"Success: Added comment to Issue {issue_number}"
-        except PlaneAPIError as e:
-            return f"Error adding comment: {e.message}"
+        response = requests.post(url, headers=self._get_headers(), json=payload)
+        self._handle_response(response)
+        return f"Success: Added comment to Issue {issue_number}"
 
     def get_comments(self, issue_number: int) -> Any:
         issue = self.get_issue_by_number(issue_number)
-        if isinstance(issue, str) or not issue: return f"Error: Issue {issue_number} not found."
+        if not issue:
+            raise PlaneAPIError(404, f"Issue {issue_number} not found")
         url = f"{self.base_url}/issues/{issue.get('id')}/comments/"
-        try:
-            response = requests.get(url, headers=self._get_headers())
-            data = self._handle_response(response)
-            return data.get("results", []) if isinstance(data, dict) else data
-        except PlaneAPIError as e:
-            return f"Error fetching comments: {e.message}"
+        response = requests.get(url, headers=self._get_headers())
+        data = self._handle_response(response)
+        return data.get("results", []) if isinstance(data, dict) else data
 
     def get_comment_url(self, issue_number: int, comment_id: str) -> str:
         """Constructs a direct permalink to a comment."""
         issue = self.get_issue_by_number(issue_number)
-        if isinstance(issue, str) or not issue: return ""
-        
+        if not issue:
+            raise PlaneAPIError(404, f"Issue {issue_number} not found")
+
         web_base = os.getenv("WEB_URL", "http://localhost:8090")
         return f"{web_base}/{self.ws_slug}/projects/{self.project_id}/issues/{issue.get('id')}#comment-{comment_id}"
 
     def add_issue_link(self, issue_number: int, url: str, title: str = None) -> str:
         issue = self.get_issue_by_number(issue_number)
-        if isinstance(issue, str) or not issue: return f"Error: Issue {issue_number} not found."
+        if not issue:
+            raise PlaneAPIError(404, f"Issue {issue_number} not found")
         endpoint = f"{self.base_url}/issues/{issue.get('id')}/links/"
         payload = {"url": url, "title": title or url}
-        try:
-            requests.post(endpoint, headers=self._get_headers(), json=payload)
-            return f"Success: Added link {url} to Issue {issue_number}"
-        except Exception as e: return f"Error adding link: {e}"
+        response = requests.post(endpoint, headers=self._get_headers(), json=payload)
+        self._handle_response(response)
+        return f"Success: Added link {url} to Issue {issue_number}"
 
     def add_issue_relation(self, issue_number: int, related_issue_number: int, relation_type: str = "relates_to") -> str:
         issue = self.get_issue_by_number(issue_number)
-        if isinstance(issue, str) or not issue: return f"Error: Source Issue {issue_number} not found."
+        if not issue:
+            raise PlaneAPIError(404, f"Source Issue {issue_number} not found")
 
         related_issue = self.get_issue_by_number(related_issue_number)
-        if isinstance(related_issue, str) or not related_issue: return f"Error: Related Issue {related_issue_number} not found."
+        if not related_issue:
+            raise PlaneAPIError(404, f"Related Issue {related_issue_number} not found")
 
         url = f"{self.base_url}/issues/{issue.get('id')}/relations/"
         payload = {
             "related_issue": related_issue.get("id"),
             "relation_type": relation_type
         }
-        
-        try:
-            response = requests.post(url, headers=self._get_headers(), json=payload)
-            self._handle_response(response)
-            return f"Success: Added relation '{relation_type}' between {issue_number} and {related_issue_number}"
-        except PlaneAPIError as e:
-            return f"Error adding relation: {e.message}"
-        except Exception as e:
-            return f"Error adding relation: {e}"
+
+        response = requests.post(url, headers=self._get_headers(), json=payload)
+        self._handle_response(response)
+        return f"Success: Added relation '{relation_type}' between {issue_number} and {related_issue_number}"
 
     def upload_attachment(self, issue_number: int, file_path: str) -> str:
-        if not os.path.exists(file_path): return f"Error: File {file_path} not found."
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"File {file_path} not found")
         issue = self.get_issue_by_number(issue_number)
-        if isinstance(issue, str) or not issue: return f"Error: Issue {issue_number} not found."
+        if not issue:
+            raise PlaneAPIError(404, f"Issue {issue_number} not found")
         endpoint = f"{self.base_url}/issues/{issue.get('id')}/attachments/"
-        headers = {"x-api-key": self.api_key} 
-        try:
-            with open(file_path, 'rb') as f:
-                files = {'asset': (os.path.basename(file_path), f)}
-                response = requests.post(endpoint, headers=headers, files=files)
-            if 200 <= response.status_code < 300: return f"Success: Attached {os.path.basename(file_path)} to Issue {issue_number}"
-            else: return f"Error uploading attachment: {response.text}"
-        except Exception as e: return f"Error uploading attachment: {e}"
+        headers = {"x-api-key": self.api_key}
+        with open(file_path, 'rb') as f:
+            files = {'asset': (os.path.basename(file_path), f)}
+            response = requests.post(endpoint, headers=headers, files=files)
+        if 200 <= response.status_code < 300:
+            return f"Success: Attached {os.path.basename(file_path)} to Issue {issue_number}"
+        else:
+            raise PlaneAPIError(response.status_code, response.text)
 
     def get_issue_links(self, issue_id: str) -> List[Dict[str, Any]]:
         url = f"{self.base_url}/issues/{issue_id}/links/"
