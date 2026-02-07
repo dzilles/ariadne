@@ -1,4 +1,4 @@
-pytest
+pytest>=8.0.0
 pytest-bdd
 python-dotenv
 requests
@@ -9,14 +9,19 @@ mkdocstrings[python]
 docker
 
 langchain
+langchain-core>=0.1.0
 langchain-google-genai
 langchain-ollama
 
 prompt_toolkit
-langgraph
+langgraph>=0.0.30
 
 # TUI (enhanced terminal interface)
 textual>=0.50.0
 rich>=13.0.0
 pydantic>=2.0.0
 pydantic-settings>=2.0.0
+
+# Optional dependencies from pyproject.toml
+openai>=1.0.0
+anthropic>=0.18.0

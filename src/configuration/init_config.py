@@ -37,7 +37,12 @@ ARIADNE_PROJECT_PATH=.
 
 # Agent API Keys
 PO_AGENT_API_KEY=your-po-agent-key
-ENGINEER_AGENT_API_KEY=your-engineer-agent-key
+REQUIREMENTS_AGENT_API_KEY=your-requirements-agent-key
+ARCHITECT_AGENT_API_KEY=your-architect-agent-key
+DEVELOPER_AGENT_API_KEY=your-developer-agent-key
+TESTER_AGENT_API_KEY=your-tester-agent-key
+QA_AGENT_API_KEY=your-qa-agent-key
+ORCHESTRATOR_AGENT_API_KEY=your-orchestrator-agent-key
 """
     with open(EXAMPLE_ENV_FILE, "w") as f:
         f.write(example_content)

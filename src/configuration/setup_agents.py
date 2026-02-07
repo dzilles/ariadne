@@ -4,7 +4,7 @@ import sys
 # Constants
 CONFIG_DIR = ".ariadne"
 ENV_FILE = os.path.join(CONFIG_DIR, ".env")
-AGENTS = ["PO_AGENT", "REQUIREMENTS_AGENT", "ENGINEER_AGENT", "DEV_AGENT", "QA_AGENT"]
+AGENTS = ["PO_AGENT", "REQUIREMENTS_AGENT", "ARCHITECT_AGENT", "DEVELOPER_AGENT", "TESTER_AGENT", "QA_AGENT", "ORCHESTRATOR_AGENT"]
 
 def setup_agent_keys():
     print("==========================================")

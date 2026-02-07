@@ -5,12 +5,13 @@ from langchain_core.messages import messages_to_dict, messages_from_dict, HumanM
 from langgraph.prebuilt import create_react_agent
 
 from src.configuration.llm_factory import get_llm
-from src.tools.plane_client import PlaneInteraction
-from src.tools.pm_tools import ProjectManagementAgentTools
+from src.interfaces.plane_adapter import PlaneTicketSystem
+from src.tools.ticket_tools import StandardTicketTools
 from src.tools.file_tools import FileAgentTools
 from src.tools.git_tools import GitAgentTools
 from src.tools.tool_wrapper import wrap_tools_with_error_handling
 from src.configuration.vault import Vault
+from src.workflows.enforcement import ToolGuard
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -37,32 +38,39 @@ class RequirementsAgent:
 
         # Initialize Tools
         try:
-            self.client = PlaneInteraction(api_key=api_key)
-            self.pm_tools = ProjectManagementAgentTools(self.client)
+            self.ticket_system = PlaneTicketSystem(api_key=api_key)
+            self.ticket_tools = StandardTicketTools(self.ticket_system)
             self.file_tools = FileAgentTools()
             self.git_tools = GitAgentTools()
+            
+            # Initialize Guard
+            self.guard = ToolGuard(self.ticket_system, agent_name="Requirements")
+            
         except Exception as e:
             logger.error(f"Failed to initialize tools: {e}")
             raise
 
-        # Register Tools (wrapped for error handling)
-        self.tools = wrap_tools_with_error_handling([
+        # Raw Tools List
+        raw_tools = [
+            # The Activation Tool (Crucial)
+            self.guard.activate_ticket,
+            
+            # Ticket System Tools
+            self.ticket_tools.get_ticket, # Used for discovery before activation
+            self.ticket_tools.update_status,
+            self.ticket_tools.post_comment,
+            self.ticket_tools.approve_gate,
+            self.ticket_tools.reject_gate,
+            self.ticket_tools.add_link,
+
             # Reading Inputs
-            self.pm_tools.get_ticket_details,
             self.file_tools.read_file,
             self.file_tools.list_files,
 
             # Writing Outputs
             self.file_tools.write_file,
 
-            # Linking/Updating
-            self.pm_tools.add_comment,
-            self.pm_tools.add_link,
-            self.pm_tools.update_ticket,
-            self.pm_tools.attach_file,
-
             # Analysis/Search
-            self.pm_tools.search_tickets,
             self.file_tools.search_files,
 
             # Git Operations
@@ -71,11 +79,16 @@ class RequirementsAgent:
             self.git_tools.create_branch,
             self.git_tools.add_files,
             self.git_tools.commit_changes
-        ])
+        ]
+
+        # Wrap tools with Guard middleware
+        self.tools = wrap_tools_with_error_handling(self.guard.wrap_tools(raw_tools))
 
         # Collect Tool Documentation
         self.tool_docs = "\n".join([
-            self.pm_tools.get_tool_descriptions(),
+            "### Core Workflow Tool",
+            "* `activate_ticket(ticket_id)`: **MUST CALL FIRST**. Locks context to a ticket and validates rules.",
+            self.ticket_tools.get_tool_descriptions(),
             self.file_tools.get_tool_descriptions(),
             self.git_tools.get_tool_descriptions()
         ])
@@ -148,42 +161,18 @@ class RequirementsAgent:
         return final_str
 
     def _get_system_message(self) -> str:
-        return f"""You are a Senior Requirements Engineer in the Ariadne V-Model lifecycle.
-Your goal is to analyze User Stories from Plane tickets and expand them into detailed Requirement Documents.
+        return f"""You are the Requirements Agent in the Ariadne V-Model lifecycle.
+
+### CRITICAL PROTOCOL:
+1.  **Activate First:** You cannot perform ANY action (writing files, committing code) until you successfully call `activate_ticket(ticket_id)`.
+2.  **Verify Rules:** The `activate_ticket` tool will tell you if you are allowed to work. If it fails (e.g. "Access Denied"), you must stop and inform the user.
+3.  **Follow Instructions:** Once activated, the system will provide you with specific instructions (Mission, Allowed Actions, Required Outputs) for that ticket. Follow them precisely.
 
 ### Workflow:
-1.  **Analyze Ticket:** 
-    *   When asked to process a ticket (e.g., #25), use `get_ticket_details` to read the User Story and Acceptance Criteria.
-    *   **Status Update:** Immediately update the ticket status to 'In Progress' to indicate work has started.
-2.  **Check Comments:** **CRITICAL:** Review the ticket comments. If there are any open questions, unresolved feedback, or "todo" items, you MUST address them before proceeding.
-3.  **Git Branching:** Before creating any files, check your current branch. If you are on 'main', create a new feature branch named `req/ticket-{{id}}`.
-4.  **Gap Analysis:** Critically evaluate the information. Is it detailed enough to write a strict specification?
-    *   *If vague:* Do NOT draft the document yet. Identify specific questions (e.g., "What specific tools should the agent use?", "What is the expected output format?").
-    *   *Action:* Use `add_comment` to post these questions on the ticket to the Product Owner/User. Inform the user you are waiting for clarification.
-4.  **Draft Requirements (Only if detailed):**
-    *   If the ticket has sufficient detail OR if the user explicitly instructs you to "proceed with assumptions", create the document.
-    *   Filename: `docs/requirements/REQ-{{ticket_id}}.md`
-    *   Content must include: Introduction, User Requirements (UR), Functional Requirements (FR), Non-Functional Requirements (NFR), Assumptions.
-5.  **Save & Version:** 
-    *   Use `write_file` to save the content.
-    *   Use `add_files` and `commit_changes` to stage and commit the new requirement document to your feature branch.
-6.  **Finalize Ticket:** 
-    *   Update the **Ticket Description** using `update_ticket`. The new description must include the original User Story PLUS a "Traceability" section containing:
-        *   **Git Branch:** <branch_name>
-        *   **Latest Commit:** <commit_hash>
-        *   **Files Changed:** A list of files created/modified.
-        *   **Summary:** A short description of the changes made.
-    *   Use `update_ticket` to set the status to "Ready for Review".
-    *   Use `add_comment` to notify the user that the requirement gathering is complete.
-
-### Guiding Principles:
-*   **Ask, don't guess:** Prefer asking for clarification over making broad assumptions.
-*   **Quality Criteria (The Good Requirement):**
-    *   **Atomic:** Each requirement should describe a single concept or feature.
-    *   **Unambiguous:** Avoid vague words like "fast", "user-friendly", or "roughly". Use precise metrics.
-    *   **Verifiable:** It must be possible to write a definitive test case (Pass/Fail) for the requirement.
-    *   **Necessary:** Every requirement must trace back to a business need or user value.
-*   Do NOT write code implementation details. Focus on WHAT, not HOW.
+1.  User says "Work on #25".
+2.  You call `activate_ticket("25")`.
+3.  If successful, proceed with the instructions provided in the tool output.
+    *   Typically: Read User Story -> Draft REQ-*.md -> Link Artifact -> Approve Gate.
 
 ### Available Tools:
 {self.tool_docs}

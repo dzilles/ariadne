@@ -41,7 +41,6 @@ SETTINGS_DIR = ".ariadne"
 SETTINGS_FILE = os.path.join(SETTINGS_DIR, "user_settings.json")
 
 
-
 def _load_user_settings() -> dict:
     """Load user settings from file."""
     if not os.path.exists(SETTINGS_FILE):
@@ -64,17 +63,6 @@ def _save_user_settings(data: dict) -> bool:
     except Exception as e:
         logger.error(f"Failed to save user settings: {e}")
         return False
-
-
-def _apply_user_settings(settings_obj: Any) -> None:
-    """Apply persisted user settings to the settings object."""
-    user_settings = _load_user_settings()
-    for field_name, value in user_settings.items():
-        if hasattr(settings_obj, field_name):
-            try:
-                setattr(settings_obj, field_name, value)
-            except Exception as e:
-                logger.warning(f"Failed to apply setting {field_name}: {e}")
 
 
 def configure_logging() -> None:
@@ -100,9 +88,6 @@ class AriadneTUI:
         # Set up logging
         setup_logging()
         configure_logging()
-
-        # Apply persisted user settings
-        _apply_user_settings(settings)
 
         # Create Agent wrappers for UI
         agents = [

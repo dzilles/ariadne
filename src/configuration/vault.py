@@ -50,7 +50,9 @@ class Vault:
             "PLANE_API_TOKEN",
             "PO_AGENT_API_KEY",
             "REQUIREMENTS_AGENT_API_KEY",
-            "ENGINEER_AGENT_API_KEY",
-            "DEV_AGENT_API_KEY",
-            "QA_AGENT_API_KEY"
+            "ARCHITECT_AGENT_API_KEY",
+            "DEVELOPER_AGENT_API_KEY",
+            "TESTER_AGENT_API_KEY",
+            "QA_AGENT_API_KEY",
+            "ORCHESTRATOR_AGENT_API_KEY"
         ]

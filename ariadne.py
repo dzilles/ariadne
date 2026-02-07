@@ -1,52 +1,25 @@
 import argparse
 import sys
+from src.interface.ariadne_tui import main as tui_main
 
 def main():
     parser = argparse.ArgumentParser(description="Ariadne: Autonomous Software Lifecycle Engine")
-    subparsers = parser.add_subparsers(dest="command", help="Commands")
-
-    # Phase command
-    phase_parser = subparsers.add_parser("phase", help="Execute a V-Model phase")
-    phase_parser.add_argument("name", choices=[
-        "gather", "analysis", "software-design", "module-design",
-        "code", "unit-test", "integration-test", "system-test", "acceptance"
-    ], help="Phase name")
-    phase_parser.add_argument("--ticket", required=True, help="Plane ticket ID")
-
-    # Review command
-    review_parser = subparsers.add_parser("review", help="Review a phase artifact")
-    review_parser.add_argument("--human", action="store_true", help="Human review")
-    review_parser.add_argument("--approve", action="store_true", help="Approve artifact")
-    review_parser.add_argument("--file", required=True, help="File to review")
-
-    # Complete command
-    complete_parser = subparsers.add_parser("complete", help="Finalize a ticket")
-    complete_parser.add_argument("--ticket", required=True, help="Plane ticket ID")
-
-    # Chat command
-    subparsers.add_parser("chat", help="Start the interactive agent chat interface")
-
-    # TUI command (enhanced terminal UI)
-    subparsers.add_parser("tui", help="Launch enhanced terminal UI")
+    
+    # We can keep 'tui' as an explicit command, or just flags. 
+    # For now, let's keep it simple: running the script launches the TUI.
+    # We can add a --help or version flag, but the primary mode is interactive.
+    
+    parser.add_argument("command", nargs="?", choices=["tui"], default="tui", 
+                        help="Launch the interactive Terminal UI (default)")
 
     args = parser.parse_args()
 
-    if args.command == "phase":
-        print(f"Executing phase '{args.name}' for ticket {args.ticket}...")
-        # Implementation logic will go here
-    elif args.command == "review":
-        status = "approved" if args.approve else "rejected"
-        print(f"Reviewing {args.file} (Human: {args.human}) - Status: {status}")
-        # Implementation logic will go here
-    elif args.command == "complete":
-        print(f"Completing lifecycle for ticket {args.ticket}...")
-        # Implementation logic will go here
-    elif args.command == "chat":
-        from src.interface.user_interface import main as chat_main
-        chat_main()
-    elif args.command == "tui":
-        from src.interface.ariadne_tui import main as tui_main
-        tui_main()
+    if args.command == "tui":
+        try:
+            tui_main()
+        except KeyboardInterrupt:
+            print("\nGoodbye!")
+            sys.exit(0)
     else:
         parser.print_help()
 

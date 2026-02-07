@@ -1,4 +1,6 @@
 import logging
+import json
+import os
 from typing import Optional, Any, Dict, Tuple
 from pydantic import Field
 from pydantic.fields import FieldInfo
@@ -6,6 +8,27 @@ from pydantic_settings import BaseSettings, SettingsConfigDict, PydanticBaseSett
 from src.configuration.vault import Vault
 
 logger = logging.getLogger(__name__)
+
+class JsonConfigSettingsSource(PydanticBaseSettingsSource):
+    """
+    A custom settings source that loads configuration from .ariadne/user_settings.json.
+    """
+    def get_field_value(self, field: FieldInfo, field_name: str) -> Tuple[Any, str, bool]:
+        # Not used directly in __call__ implementation below, but required by interface if we used standard logic
+        return None, field_name, False
+
+    def __call__(self) -> Dict[str, Any]:
+        settings_path = os.path.join(".ariadne", "user_settings.json")
+        if not os.path.exists(settings_path):
+            return {}
+        
+        try:
+            with open(settings_path, "r") as f:
+                data = json.load(f)
+            return data
+        except Exception as e:
+            logger.warning(f"Failed to load user settings from {settings_path}: {e}")
+            return {}
 
 class VaultSettingsSource(PydanticBaseSettingsSource):
     def get_field_value(self, field: FieldInfo, field_name: str) -> Tuple[Any, str, bool]:
@@ -34,7 +57,8 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".ariadne/.env", 
         env_file_encoding="utf-8",
-        extra="ignore"
+        extra="ignore",
+        populate_by_name=True
     )
 
     plane_url: str = "http://localhost:8000"
@@ -64,8 +88,9 @@ class Settings(BaseSettings):
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> Tuple[PydanticBaseSettingsSource, ...]:
         return (
-            VaultSettingsSource(settings_cls),
             init_settings,
+            VaultSettingsSource(settings_cls),
+            JsonConfigSettingsSource(settings_cls),
             env_settings,
             dotenv_settings,
             file_secret_settings,

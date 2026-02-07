@@ -14,21 +14,33 @@ import src.tools.tool_wrapper as tool_wrapper
 
 # Import agent classes
 from src.agents.po_agent import ProductOwnerAgent
-from src.agents.engineer_agent import EngineerAgent
 from src.agents.requirements_agent import RequirementsAgent
+from src.agents.architect_agent import ArchitectAgent
+from src.agents.developer_agent import DeveloperAgent
+from src.agents.tester_agent import TesterAgent
+from src.agents.qa_agent import QualityAssuranceAgent
+from src.agents.orchestrator_agent import OrchestratorAgent
 
 # Agent registry mapping names to classes
 AGENT_CLASSES = {
     "Product Owner": ProductOwnerAgent,
     "Requirements": RequirementsAgent,
-    "Engineer": EngineerAgent,
+    "Architect": ArchitectAgent,
+    "Developer": DeveloperAgent,
+    "Tester": TesterAgent,
+    "QA": QualityAssuranceAgent,
+    "Orchestrator": OrchestratorAgent,
 }
 
 # Agent descriptions for UI display
 AGENT_DESCRIPTIONS = {
     "Product Owner": "Manages backlog and translates requirements into tickets",
     "Requirements": "Refines tickets into detailed requirement documents",
-    "Engineer": "Designs and implements software based on specifications",
+    "Architect": "Designs system architecture and technical specifications",
+    "Developer": "Implements features and fixes bugs based on designs",
+    "Tester": "Writes and executes automated tests",
+    "QA": "Reviews code and validates adherence to quality standards",
+    "Orchestrator": "Coordinates the overall workflow and agent assignments",
 }
 
 # Patterns that indicate an error response from agents
