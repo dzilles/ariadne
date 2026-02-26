@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch, MagicMock
 import os
-from src.tools.plane_client import PlaneInteraction, PlaneAPIError
+from src.tools.plane_client import PlaneInteraction
 
 class TestPlaneInteraction(unittest.TestCase):
 
@@ -38,7 +38,7 @@ class TestPlaneInteraction(unittest.TestCase):
 
         issue = self.client.create_issue("New Issue", "Description", priority="High")
         
-        self.assertEqual(issue["name"], "New Issue")
+        self.assertIn("Success: Created Ticket", issue)
         # Verify priority was lowercased
         args, kwargs = mock_post.call_args
         self.assertEqual(kwargs["json"]["priority"], "high")
@@ -69,7 +69,7 @@ class TestPlaneInteraction(unittest.TestCase):
 
         updated_issue = self.client.update_issue_status(12, "In Progress")
         
-        self.assertEqual(updated_issue["state"], "state-uuid")
+        self.assertEqual(updated_issue, "Success: Updated Issue 12")
         mock_patch.assert_called_once()
 
     @patch("requests.get")

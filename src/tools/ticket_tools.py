@@ -1,5 +1,4 @@
-from typing import List, Optional
-from src.interfaces.ticket_system import TicketSystem, TicketStatus, TicketType, GateStatus
+from src.interfaces.ticket_system import TicketSystem, TicketStatus, GateStatus
 
 class StandardTicketTools:
     """

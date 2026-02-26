@@ -3,9 +3,8 @@
 from typing import Any
 
 from textual.app import ComposeResult
-from textual.containers import Container, Vertical, ScrollableContainer
+from textual.containers import Container, ScrollableContainer
 from textual.widgets import Static, TextArea
-from textual.reactive import reactive
 from textual.message import Message as TextualMessage
 from textual.binding import Binding
 from rich.text import Text
@@ -19,37 +18,6 @@ from .message import (
     ResponseState,
 )
 from .commands import Command
-
-
-class ThinkingIndicator(Static):
-    """Animated thinking indicator (pulsating dot)."""
-
-    ANIMATION_FRAMES = ["·", "•", "●", "•", "·", " "]
-    frame = reactive(0)
-    active = reactive(False)
-
-    def __init__(self, **kwargs) -> None:
-        super().__init__("●", **kwargs)
-        self._timer = None
-
-    def on_mount(self) -> None:
-        """Start the animation timer."""
-        self._timer = self.set_interval(0.15, self._next_frame)
-
-    def _next_frame(self) -> None:
-        """Advance to the next animation frame."""
-        if self.active:
-            self.frame = (self.frame + 1) % len(self.ANIMATION_FRAMES)
-
-    def watch_frame(self, frame: int) -> None:
-        """Update display when frame changes."""
-        if self.active:
-            self.update(self.ANIMATION_FRAMES[frame])
-
-    def watch_active(self, active: bool) -> None:
-        """Update display when active state changes."""
-        if not active:
-            self.update("●")
 
 
 class LinedContent:

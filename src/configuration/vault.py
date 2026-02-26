@@ -1,6 +1,5 @@
 import keyring
 import logging
-import platform
 
 logger = logging.getLogger(__name__)
 

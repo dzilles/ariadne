@@ -10,7 +10,7 @@ import json
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 
-from .message import Conversation, BotResponse, ResponseState
+from .message import Conversation, BotResponse
 from .commands import CommandRegistry, create_default_commands
 from .widgets import ChatInput, ConversationView, ApprovalDialog
 
@@ -412,7 +412,7 @@ class ChatUI(App):
                 active = " (active)" if agent == self._active_agent else ""
                 desc = f" - {agent.description}" if agent.description else ""
                 lines.append(f"- `{agent.name}`{desc}{active}")
-            lines.append(f"\nUse `/agent <name>` to switch agents.")
+            lines.append("\nUse `/agent <name>` to switch agents.")
             response.complete("\n".join(lines))
         else:
             # Try to select the agent

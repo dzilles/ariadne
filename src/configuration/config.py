@@ -69,6 +69,7 @@ class Settings(BaseSettings):
     plane_project_id: Optional[str] = Field(None, validation_alias="PLANE_PROJECT_ID")
     
     raw_plane_api_url: Optional[str] = Field(None, validation_alias="PLANE_API_URL")
+    plane_api_token: Optional[str] = Field(None, validation_alias="PLANE_API_TOKEN")
     plane_api_rate_limit: Optional[str] = Field(None, validation_alias="API_KEY_RATE_LIMIT")
 
     # LLM Configuration (non-secret)

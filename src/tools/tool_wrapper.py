@@ -3,7 +3,6 @@
 import functools
 import logging
 import asyncio
-import threading
 import queue
 from typing import Callable, Any, Optional
 

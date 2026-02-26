@@ -1,6 +1,5 @@
 import logging
-import os
-from typing import List, Optional
+from typing import List
 from git import Repo, GitCommandError
 from src.configuration.config import settings
 

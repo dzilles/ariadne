@@ -8,7 +8,7 @@ from src.interfaces.ticket_system import (
     Comment, 
     ArtifactLink
 )
-from src.tools.plane_client import PlaneInteraction, PlaneAPIError
+from src.tools.plane_client import PlaneInteraction
 
 class PlaneTicketSystem(TicketSystem):
     """
@@ -70,25 +70,35 @@ class PlaneTicketSystem(TicketSystem):
             raw_comments = self.client.get_comments(seq_id)
             comments = []
             for c in raw_comments:
-                comments.append(Comment(
-                    id=c.get("id"),
-                    text=c.get("comment_html", "").replace("<p>", "").replace("</p>", ""), # Strip basic HTML
-                    author=c.get("actor_detail", {}).get("display_name", "Unknown"),
-                    created_at=c.get("created_at")
-                ))
+                if isinstance(c, dict):
+                    comments.append(Comment(
+                        id=c.get("id"),
+                        text=c.get("comment_html", "").replace("<p>", "").replace("</p>", ""), # Strip basic HTML
+                        author=c.get("actor_detail", {}).get("display_name", "Unknown"),
+                        created_at=c.get("created_at")
+                    ))
 
             # Fetch Links (Artifacts)
             raw_links = self.client.get_issue_links(issue_data.get("id"))
             artifacts = []
             for l in raw_links:
-                artifacts.append(ArtifactLink(
-                    title=l.get("title", "Link"),
-                    url=l.get("url")
-                ))
+                if isinstance(l, dict):
+                    artifacts.append(ArtifactLink(
+                        title=l.get("title", "Link"),
+                        url=l.get("url")
+                    ))
 
             # Map Status
             current_state = issue_data.get("state_detail", {}).get("name")
             status = self._map_plane_state_to_status(current_state)
+
+            # Safely process assignees
+            assignees_list = []
+            for m in issue_data.get("assignees", []):
+                if isinstance(m, dict):
+                    assignees_list.append(m.get("member", {}).get("display_name", "Unknown"))
+                elif isinstance(m, str):
+                    assignees_list.append(m)
 
             return Ticket(
                 id=str(issue_data.get("sequence_id")),
@@ -96,7 +106,7 @@ class PlaneTicketSystem(TicketSystem):
                 description=issue_data.get("description_html", "").replace("<p>", "").replace("</p>", ""), # Strip basic HTML
                 status=status,
                 type=TicketType.FEATURE, # Defaulting for now, ideally parsed from label or type field
-                assignees=[m.get("member", {}).get("display_name") for m in issue_data.get("assignees", [])],
+                assignees=assignees_list,
                 comments=comments,
                 artifacts=artifacts
                 # Gate statuses would need to be fetched from Custom Properties (not yet implemented in base client)

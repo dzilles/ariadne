@@ -480,8 +480,8 @@ class AriadneTUI:
             )
         else:
             welcome.info(
-                f"**Ariadne TUI**\n\n"
-                f"No agent initialized. Use `/agent` to select one."
+                "**Ariadne TUI**\n\n"
+                "No agent initialized. Use `/agent` to select one."
             )
 
         # Run the UI

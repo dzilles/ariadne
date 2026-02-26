@@ -203,30 +203,6 @@ async def _handle_message_sync(
         response.error(f"Agent error: {str(e)}")
 
 
-def create_agent(name: str) -> Any:
-    """Create an agent instance by name.
-
-    Args:
-        name: The agent name (must be in AGENT_CLASSES)
-
-    Returns:
-        An initialized agent instance
-
-    Raises:
-        ValueError: If the agent name is not found
-    """
-    if name not in AGENT_CLASSES:
-        available = ", ".join(AGENT_CLASSES.keys())
-        raise ValueError(f"Unknown agent '{name}'. Available: {available}")
-
-    return AGENT_CLASSES[name]()
-
-
 def get_agent_names() -> list[str]:
     """Get list of available agent names."""
     return list(AGENT_CLASSES.keys())
-
-
-def get_agent_description(name: str) -> str:
-    """Get the description for an agent."""
-    return AGENT_DESCRIPTIONS.get(name, "")

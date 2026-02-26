@@ -1,6 +1,6 @@
 import functools
-from typing import Callable, Any, Optional
-from src.workflows.rules import get_rule_for_status, WorkflowRule, generate_instructions
+from typing import Callable, Optional
+from src.workflows.rules import get_rule_for_status, generate_instructions
 from src.interfaces.ticket_system import TicketSystem
 
 class ToolGuard:
