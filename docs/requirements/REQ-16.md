@@ -36,7 +36,6 @@ This document refines the requirements for the Terminal User Interface (TUI) and
 - **NFR-3 (Reliability)**: The HITL mechanism must use thread-safe communication (e.g., thread-safe queues) to bridge sync tool calls with the async UI event loop.
 - **NFR-4 (Persistence)**: Exported conversation history must be saved in a standard JSON format.
 - **NFR-5 (Modularity)**: The TUI code shall be structured to allow for unit testing of individual logic components (e.g., command parsers, log formatters, state managers) independently of the Textual event loop.
-- **NFR-6 (Traceability Standards)**: All traceability tags (e.g., `[REQ-16]`, `[FR-1]`) MUST be placed within the Python docstrings of the relevant classes or functions. Tags MUST NOT be placed as comments or raw text in the code body to prevent syntax errors.
 
 ## Assumptions & Constraints
 - **Constraint-1**: The TUI is built using the Textual framework and requires a terminal that supports ANSI escape codes.
