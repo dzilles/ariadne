@@ -1,7 +1,7 @@
 # REQ-16: Terminal User Interface & Human-in-the-loop (Refinement)
 
 ## Introduction
-This document refines the requirements for the Terminal User Interface (TUI) and Human-in-the-loop (HITL) system, following the initial draft in REQ-15. The system provides a real-time monitoring dashboard for autonomous agents and a mechanism for manual intervention during sensitive operations. This refinement focuses on enhancing the testability and robustness of the TUI.
+This document refines the requirements for the Terminal User Interface (TUI) and Human-in-the-loop (HITL) system, following the initial draft in REQ-15. The system provides a real-time monitoring dashboard for autonomous agents and a mechanism for manual intervention during sensitive operations. This refinement focuses on enhancing the testability and robustness of the TUI, specifically addressing previous implementation failures regarding traceability and automated testing.
 
 ## User Requirements (UR)
 - **UR-1**: The user must be able to monitor agent activities (logs, tool calls, status) in real-time through a terminal interface.
@@ -24,19 +24,22 @@ This document refines the requirements for the Terminal User Interface (TUI) and
 - **FR-10**: The system shall allow viewing and editing Pydantic-based settings via the `/settings` command.
 - **FR-11**: The TUI shall provide an "Abort" action (Escape key) to cancel the current agent task.
 - **FR-12**: The system shall record all tool approvals and denials in the agent's audit trail/logs.
-- **FR-13 (Testability)**: The TUI shall expose its internal state (e.g., current active agent, log content, modal status) via a queryable interface for automated testing.
-- **FR-14 (Testability)**: All interactive UI components (buttons, input fields, modals) shall have unique, stable identifiers to facilitate automated UI testing.
-- **FR-15 (Testability)**: The TUI shall provide a programmatic way to simulate user input (e.g., key presses, slash commands) during testing.
-- **FR-16 (Testability)**: The system shall support a "headless" or "mock" mode where the TUI can run without a physical terminal, allowing for integration testing in CI environments.
+- **FR-13 (Testability - State Exposure)**: The TUI shall expose its internal state (e.g., current active agent, log content, modal status, input buffer) via a queryable interface (e.g., a `get_state()` method) for automated testing.
+- **FR-14 (Testability - Component IDs)**: All interactive UI components (buttons, input fields, modals, containers) shall have unique, stable `id` attributes to facilitate targeted selection in automated UI tests.
+- **FR-15 (Testability - Input Simulation)**: The TUI shall provide programmatic methods to simulate user input (e.g., `simulate_keypress(key)`, `simulate_input(text)`) that bypass physical hardware but trigger the same event logic.
+- **FR-16 (Testability - Headless Execution)**: The system shall support a "headless" execution mode (compatible with Textual's `run_test`) where the TUI can be initialized, interacted with, and asserted against without requiring a physical terminal or TTY.
+- **FR-17 (Testability - Verification Hooks)**: The TUI shall provide hooks to intercept and verify UI transitions (e.g., "modal_opened", "message_received") to allow tests to wait for specific UI states before proceeding.
 
 ## Non-Functional Requirements (NFR)
 - **NFR-1 (Performance)**: The TUI must be lightweight and not introduce significant latency to agent execution (except when waiting for HITL approval).
 - **NFR-2 (Usability)**: The interface should use Rich text for clear visual distinction between user messages, bot responses, and tool statuses.
-- **NFR-3 (Reliability)**: The HITL mechanism must use thread-safe communication to bridge sync tool calls with the async UI event loop.
+- **NFR-3 (Reliability)**: The HITL mechanism must use thread-safe communication (e.g., thread-safe queues) to bridge sync tool calls with the async UI event loop.
 - **NFR-4 (Persistence)**: Exported conversation history must be saved in a standard JSON format.
-- **NFR-5 (Testability)**: The TUI code shall be structured to allow for unit testing of individual components (e.g., command parsers, log formatters) independently of the main event loop.
+- **NFR-5 (Modularity)**: The TUI code shall be structured to allow for unit testing of individual logic components (e.g., command parsers, log formatters, state managers) independently of the Textual event loop.
+- **NFR-6 (Traceability Standards)**: All traceability tags (e.g., `[REQ-16]`, `[FR-1]`) MUST be placed within the Python docstrings of the relevant classes or functions. Tags MUST NOT be placed as comments or raw text in the code body to prevent syntax errors.
 
 ## Assumptions & Constraints
 - **Constraint-1**: The TUI is built using the Textual framework and requires a terminal that supports ANSI escape codes.
 - **Constraint-2**: HITL approval is synchronous from the agent's perspective; the agent pauses until the user responds or a timeout occurs.
+- **Constraint-3**: All code implementations must strictly adhere to the docstring-only traceability rule (NFR-6).
 - **Assumption-1**: Agents use the provided `tool_wrapper` or a compatible mechanism for tool interception.
