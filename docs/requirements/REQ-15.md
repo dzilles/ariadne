@@ -47,4 +47,4 @@ This document defines the requirements for the Terminal User Interface (TUI) and
 - **Assumption-1**: Agents use the provided `tool_wrapper` or a compatible mechanism for tool interception.
 
 ## Related Requirements
-- Depends on: [Pending Core V-Model Workflow Requirement]
+- Depends on: Core V-Model Workflow Engine [PENDING LINK]
