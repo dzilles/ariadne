@@ -93,6 +93,6 @@ class TicketSystem(ABC):
         pass
 
     @abstractmethod
-    def add_artifact_link(self, ticket_id: str, title: str, url: str) -> None:
-        """Add a link to an external artifact (file, doc, etc)."""
+    def add_artifact_link(self, ticket_id: str, title: str, url: str, comment: str = None) -> None:
+        """Add a link to an external artifact (file, doc, etc) and optionally post a comment."""
         pass

@@ -114,6 +114,7 @@ def _request_approval_sync(tool_name: str, args: dict) -> bool:
 
 def with_error_handling(func: Callable) -> Callable:
     """Decorator that catches exceptions and optionally requests approval.
+    Implementation of ARCH-15. Fulfills REQ-15.
 
     Preserves function metadata (name, docstring, annotations) for LangChain/LangGraph.
     """

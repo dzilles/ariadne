@@ -1,5 +1,6 @@
 import os
 import logging
+from src.workflows.enforcement import jit_vmodel_guard
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,7 @@ class FileAgentTools:
         except Exception as e:
             return f"Error reading file: {e}"
 
+    @jit_vmodel_guard
     def write_file(self, file_path: str, content: str) -> str:
         """
         Writes content to a file. Overwrites if exists, creates directories if needed.
@@ -71,16 +73,18 @@ class FileAgentTools:
     def search_files(self, directory: str, pattern: str) -> str:
         """
         Searches for files matching a pattern within a directory.
+        Supports glob patterns (e.g., 'ARCH-*.md').
         """
         msg = f"[Tool: search_files called in '{directory}' for '{pattern}']"
         print(f"\n{msg}")
         logger.info(msg)
         
+        import fnmatch
         matches = []
         try:
             for root, _, files in os.walk(directory):
                 for file in files:
-                    if pattern in file:
+                    if fnmatch.fnmatch(file, pattern) or pattern in file:
                          matches.append(os.path.join(root, file))
             if not matches:
                  return "No files found matching pattern."

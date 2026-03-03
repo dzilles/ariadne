@@ -150,5 +150,13 @@ class PlaneTicketSystem(TicketSystem):
         comment = f"**GATE UPDATE**: {gate.upper()} set to {status.value}"
         self.post_comment(ticket_id, comment)
 
-    def add_artifact_link(self, ticket_id: str, title: str, url: str) -> None:
-        self.client.add_issue_link(int(ticket_id), url, title)
+    def add_artifact_link(self, ticket_id: str, title: str, url: str, comment: str = None) -> None:
+        # Plane API requires a strictly valid HTTP/HTTPS URL
+        if not url.startswith("http://") and not url.startswith("https://"):
+            formatted_url = f"https://local.project/blob/main/{url.lstrip('/')}"
+        else:
+            formatted_url = url
+            
+        self.client.add_issue_link(int(ticket_id), formatted_url, title)
+        if comment:
+            self.post_comment(ticket_id, comment)

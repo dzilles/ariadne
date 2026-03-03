@@ -2,6 +2,7 @@ import logging
 from typing import List
 from git import Repo, GitCommandError
 from src.configuration.config import settings
+from src.workflows.enforcement import jit_vmodel_guard
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +44,7 @@ class GitAgentTools:
         except Exception as e:
             return f"Error getting branch: {e}"
 
+    @jit_vmodel_guard
     def create_branch(self, branch_name: str) -> str:
         """
         Creates and checks out a new branch.
@@ -69,6 +71,7 @@ class GitAgentTools:
         except GitCommandError as e:
             return f"Error checking out branch '{branch_name}': {e}"
 
+    @jit_vmodel_guard
     def add_files(self, files: List[str] = None) -> str:
         """
         Stages specific files or all files (if files=['.']).
@@ -83,6 +86,7 @@ class GitAgentTools:
         except GitCommandError as e:
             return f"Error adding files: {e}"
 
+    @jit_vmodel_guard
     def commit_changes(self, message: str) -> str:
         """
         Commits staged changes with a message.
@@ -101,6 +105,7 @@ class GitAgentTools:
         except GitCommandError as e:
             return f"Error committing: {e}"
 
+    @jit_vmodel_guard
     def push_changes(self, remote_name: str = "origin") -> str:
         """
         Pushes the current branch to the remote.

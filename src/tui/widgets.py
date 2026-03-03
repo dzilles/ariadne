@@ -717,7 +717,9 @@ class ChatInput(Container):
 
 
 class ApprovalDialog(Container):
-    """Simple dialog for tool call approval."""
+    """Simple dialog for tool call approval.
+    Implementation of ARCH-15. Fulfills REQ-15.
+    """
 
     BINDINGS = [
         Binding("y", "approve_yes", "Yes", show=False),

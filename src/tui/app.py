@@ -39,7 +39,9 @@ class Agent:
 
 
 class ChatUI(App):
-    """A minimalist terminal chat UI."""
+    """A minimalist terminal chat UI.
+    Implementation of ARCH-15. Fulfills REQ-15.
+    """
 
     CSS = """
     Screen {
@@ -578,6 +580,9 @@ class ChatUI(App):
 
     async def on_chat_input_submitted(self, event: ChatInput.Submitted) -> None:
         """Handle message submission."""
+        # Abort any current operation
+        self.action_abort()
+
         self.conversation.add_user_message(event.value)
         response = self.conversation.add_bot_response()
 

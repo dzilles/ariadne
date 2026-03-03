@@ -1,116 +1,110 @@
 import functools
-from typing import Callable, Optional
-from src.workflows.rules import get_rule_for_status, generate_instructions
-from src.interfaces.ticket_system import TicketSystem
+from typing import Callable, Any
 
-class ToolGuard:
+from src.workflows.context import get_active_ticket_id
+from src.interfaces.plane_adapter import PlaneTicketSystem
+from src.workflows.rules import get_rule_for_status
+
+def get_ticket_system():
+    # Return a new instance every time to ensure we get fresh data from Plane
+    return PlaneTicketSystem()
+
+def jit_vmodel_guard(func: Callable) -> Callable:
+
     """
-    Middleware that strictly enforces Workflow Rules on tool execution.
-    Discovery tools are bypassed (read-only); Mutating tools are guarded.
+
+    Decorator for write/commit tools that checks the JIT context and workflow rules.
+
+    It retrieves the active_ticket_id, checks its status in Plane, and ensures
+
+    the tool execution is allowed for the current ticket state.
+
     """
 
-    # List of tools that are always allowed regardless of context or rules
-    READ_ONLY_BYPASS = [
-        "get_ticket",
-        "search_tickets",
-        "list_files",
-        "read_file",
-        "search_files",
-        "get_status",
-        "get_current_branch",
-        "activate_ticket" # Self-referential
-    ]
+    @functools.wraps(func)
 
-    def __init__(self, ticket_system: TicketSystem, agent_name: str):
-        self.ticket_system = ticket_system
-        self.agent_name = agent_name
-        self.current_ticket_id: Optional[str] = None
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
 
-    def activate_ticket(self, ticket_id: str) -> str:
-        """
-        Tool for the Agent to explicitly switch context.
-        Verifies if the Agent is ALLOWED to own this ticket.
-        """
-        try:
-            # 1. Fetch Ticket
-            ticket = self.ticket_system.get_ticket(ticket_id)
-            
-            # 2. Get Rule
-            rule = get_rule_for_status(ticket.status)
-            if not rule:
-                return f"System Error: No rule defined for status '{ticket.status}'."
+        # 1. Retrieve the active_ticket_id from the hidden context
 
-            # 3. Check Ownership
-            if rule.agent_name != self.agent_name:
-                return (
-                    f"⛔ ACCESS DENIED: Ticket #{ticket_id} is in '{ticket.status}'.\n"
-                    f"Owner Role: {rule.agent_name}\n"
-                    f"Your Role: {self.agent_name}\n"
-                    f"You are not allowed to activate this ticket."
-                )
+        ticket_id = get_active_ticket_id()
 
-            # 4. Success - Set Context
-            self.current_ticket_id = ticket_id
-            
-            # 5. Return Instructions
+        if not ticket_id:
+
             return (
-                f"✅ Ticket #{ticket_id} ACTIVATED.\n"
-                f"{generate_instructions(rule, ticket_id)}"
+
+                "⛔ BLOCK: You cannot execute mutating tools without an active ticket context. "
+
+                "The Orchestrator must delegate a ticket to you."
+
             )
 
+
+
+        # 2. Query Plane for that ticket's status and blockers
+
+        try:
+
+            ts = get_ticket_system()
+
+            ticket = ts.get_ticket(ticket_id)
+
+            
+
+            # Check for blockers using Plane interaction directly if needed
+
+            # For now, we rely on the rule engine based on status
+
+            relations = ts.client.get_issue_relations(ticket.id)
+
+            for rel in relations:
+
+                if isinstance(rel, dict) and rel.get("relation_type") == "blocked_by":
+
+                    return f"⛔ BLOCK: Ticket #{ticket_id} is currently BLOCKED by another issue."
+
+
+
         except Exception as e:
-            return f"Error activating ticket: {e}"
 
-    def guard(self, tool_name: str, func: Callable) -> Callable:
-        """
-        Decorator-like wrapper that checks rules before executing a tool.
-        """
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            # 1. Bypass check for Read-Only tools
-            if tool_name in self.READ_ONLY_BYPASS:
-                 return func(*args, **kwargs)
+            return f"System Error: Could not verify ticket status for #{ticket_id}. {e}"
 
-            # 2. Context check for Mutating tools
-            if not self.current_ticket_id:
-                return (
-                    f"⛔ BLOCK: You tried to use '{tool_name}' but have not activated a ticket yet.\n"
-                    f"You must use `activate_ticket(ticket_id)` first to start your mission."
-                )
 
-            # 3. Rule fetching (Double check it hasn't changed)
-            try:
-                ticket = self.ticket_system.get_ticket(self.current_ticket_id)
-            except Exception as e:
-                return f"System Error: Could not verify ticket status for #{self.current_ticket_id}. {e}"
 
-            rule = get_rule_for_status(ticket.status)
-            if not rule:
-                return f"System Error: No workflow rule defined for status '{ticket.status}'."
+        # 3. Block execution if wrong state
 
-            # 4. Rule Compliance check
-            if tool_name not in rule.allowed_actions:
-                 return (
-                     f"⛔ ACTION BLOCKED: You cannot perform '{tool_name}' "
-                     f"because Ticket #{self.current_ticket_id} is in '{ticket.status}'.\n"
-                     f"Your allowed actions for this phase are: {rule.allowed_actions}"
-                 )
+        status = ticket.status or "Backlog"
 
-            # 5. Execute
-            return func(*args, **kwargs)
+        rule = get_rule_for_status(status)
 
-        return wrapper
+        if not rule:
 
-    def wrap_tools(self, tools: list) -> list:
-        """
-        Wraps a list of callables with the guard.
-        """
-        wrapped = []
-        for tool in tools:
-            func = tool if callable(tool) else getattr(tool, "func", tool)
-            name = getattr(tool, "name", func.__name__)
-            
-            guarded = self.guard(name, func)
-            wrapped.append(guarded)
-            
-        return wrapped
+            return f"System Error: No workflow rule defined for status '{status}'."
+
+
+
+        tool_name = func.__name__
+
+        if tool_name not in rule.allowed_actions:
+
+            return (
+
+                f"⛔ ACTION BLOCKED: You cannot perform '{tool_name}' "
+
+                f"because Ticket #{ticket_id} is in '{status}'.\n"
+
+                f"Your allowed actions for this phase are: {rule.allowed_actions}"
+
+            )
+
+
+
+        # Execute the original tool
+
+        return func(*args, **kwargs)
+
+
+
+    return wrapper
+
+

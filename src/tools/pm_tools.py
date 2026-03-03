@@ -165,12 +165,33 @@ Description:
 """
         return details.strip()
 
-    def add_link(self, ticket_number: int, url: str, title: str = None) -> str:
-        """Adds an external link (URL) to a ticket."""
+    def add_link(self, ticket_number: int, url: str, title: str = None, comment: str = None) -> str:
+        """Adds an external link (URL) to a ticket. Optionally adds a comment in the same call."""
         msg = f"[Tool: add_link called for #{ticket_number}: {url}]"
         print(f"\n{msg}")
         logger.info(msg)
-        return self.client.add_issue_link(ticket_number, url, title)
+        
+        # Plane API requires a strictly valid HTTP/HTTPS URL
+        if not url.startswith("http://") and not url.startswith("https://"):
+            formatted_url = f"https://local.project/blob/main/{url.lstrip('/')}"
+        else:
+            formatted_url = url
+
+        result_msg = ""
+        try:
+            self.client.add_issue_link(ticket_number, formatted_url, title)
+            result_msg += f"Link '{title or url}' added successfully. "
+        except Exception as e:
+             return f"Failed to add link: {e}"
+             
+        if comment:
+             try:
+                 self.client.add_comment(ticket_number, comment)
+                 result_msg += "Comment added successfully."
+             except Exception as e:
+                 result_msg += f" (Failed to add comment: {e})"
+                 
+        return result_msg.strip()
 
     def add_relation(self, ticket_number: int, related_ticket_number: int, relation_type: str = "relates_to") -> str:
         """
@@ -209,7 +230,7 @@ Description:
 *   `update_ticket(ticket_number, ...)`: Updates status, priority, description, etc.
 *   `add_comment(ticket_number, comment)`: Posts a comment.
 *   `create_ticket(title, description)`: Creates a new ticket.
-*   `add_link(ticket_number, url)`: Adds an external URL link.
+*   `add_link(ticket_number, url, title, comment)`: Adds an external URL link. Can also optionally post a comment at the same time.
 *   `add_relation(ticket, related_ticket, type)`: Links tickets (e.g., 'blocking', 'relates_to').
 *   `search_tickets(keyword, ...)`: Finds tickets.
 """

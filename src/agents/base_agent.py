@@ -32,6 +32,8 @@ class BaseAgent:
     def _init_executor(self, tools: list, system_message: str):
         """Initializes the underlying LangGraph React agent."""
         self.agent_executor = create_react_agent(self.llm, tools, prompt=system_message)
+        # Increase recursion limit to avoid early termination on complex tasks
+        self.agent_executor.config = {"recursion_limit": 50}
 
     def get_history(self) -> List[dict]:
         """Returns the current chat history as a serializable list of dicts."""

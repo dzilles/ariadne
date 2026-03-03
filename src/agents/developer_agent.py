@@ -4,6 +4,7 @@ from src.tools.plane_client import PlaneInteraction
 from src.tools.pm_tools import ProjectManagementAgentTools
 from src.tools.file_tools import FileAgentTools
 from src.tools.git_tools import GitAgentTools
+from src.tools.shell_tools import ShellAgentTools
 from src.tools.tool_wrapper import wrap_tools_with_error_handling
 
 logger = logging.getLogger(__name__)
@@ -21,6 +22,7 @@ class DeveloperAgent(BaseAgent):
             self.pm_tools = ProjectManagementAgentTools(self.client)
             self.file_tools = FileAgentTools()
             self.git_tools = GitAgentTools()
+            self.shell_tools = ShellAgentTools()
         except Exception as e:
             logger.error(f"Failed to initialize tools: {e}")
             raise
@@ -31,6 +33,7 @@ class DeveloperAgent(BaseAgent):
             self.file_tools.list_files,
             self.file_tools.search_files,
             self.file_tools.write_file,
+            self.shell_tools.run_shell_command,
             self.git_tools.get_status,
             self.git_tools.get_current_branch,
             self.git_tools.create_branch,
@@ -45,7 +48,8 @@ class DeveloperAgent(BaseAgent):
         self.tool_docs = "\n".join([
             self.pm_tools.get_tool_descriptions(),
             self.file_tools.get_tool_descriptions(),
-            self.git_tools.get_tool_descriptions()
+            self.git_tools.get_tool_descriptions(),
+            self.shell_tools.get_tool_descriptions()
         ])
 
         self._init_executor(self.tools, self._get_system_message())
@@ -59,6 +63,8 @@ Your goal is to implement features and fix bugs based on technical designs and r
 2.  **Follow Design:** Adhere to the provided architectural designs (DESIGN-*.md).
 3.  **Git Workflow:** Create branches, commit often, and push changes.
 4.  **Update Tickets:** Keep the ticket status updated as you work.
+5.  **Code-Level Traceability:** When modifying functions/classes, you MUST include a traceability tag in the docstring or comment: `Implementation of ARCH-XXX. Fulfills REQ-XXX.`
+6.  **Verify:** After making code changes, ALWAYS run simple developer tests (e.g., `python -m py_compile <file>`) using `run_shell_command` to ensure there are no syntax errors before considering the task complete.
 
 ### Available Tools:
 {self.tool_docs}

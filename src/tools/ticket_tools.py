@@ -1,4 +1,5 @@
 from src.interfaces.ticket_system import TicketSystem, TicketStatus, GateStatus
+from src.workflows.enforcement import jit_vmodel_guard
 
 class StandardTicketTools:
     """
@@ -20,7 +21,7 @@ class StandardTicketTools:
             lines = [
                 f"ID: {ticket.id}",
                 f"Title: {ticket.title}",
-                f"Status: {ticket.status.value}",
+                f"Status: {ticket.status}",
                 f"Type: {ticket.type.value}",
                 f"Assignees: {', '.join(ticket.assignees)}",
                 "\n--- Description ---",
@@ -39,6 +40,7 @@ class StandardTicketTools:
         except Exception as e:
             return f"Error fetching ticket: {e}"
 
+    @jit_vmodel_guard
     def update_status(self, ticket_id: str, status: str) -> str:
         """
         Update ticket status.
@@ -55,6 +57,7 @@ class StandardTicketTools:
         except Exception as e:
             return f"Error updating status: {e}"
 
+    @jit_vmodel_guard
     def post_comment(self, ticket_id: str, comment: str) -> str:
         """Post a comment to the ticket."""
         try:
@@ -63,6 +66,7 @@ class StandardTicketTools:
         except Exception as e:
             return f"Error posting comment: {e}"
 
+    @jit_vmodel_guard
     def approve_gate(self, ticket_id: str, gate: str) -> str:
         """
         Approve a specific phase gate.
@@ -74,6 +78,7 @@ class StandardTicketTools:
         except Exception as e:
             return f"Error approving gate: {e}"
 
+    @jit_vmodel_guard
     def reject_gate(self, ticket_id: str, gate: str) -> str:
         """
         Reject a specific phase gate.
@@ -85,11 +90,15 @@ class StandardTicketTools:
         except Exception as e:
             return f"Error rejecting gate: {e}"
     
-    def add_link(self, ticket_id: str, title: str, url: str) -> str:
-        """Link an artifact (URL) to the ticket."""
+    @jit_vmodel_guard
+    def add_link(self, ticket_id: str, title: str, url: str, comment: str = None) -> str:
+        """Link an artifact (URL) to the ticket and optionally post a comment."""
         try:
-            self.system.add_artifact_link(ticket_id, title, url)
-            return f"Success: Linked {title} to {ticket_id}"
+            self.system.add_artifact_link(ticket_id, title, url, comment)
+            msg = f"Success: Linked {title} to {ticket_id}"
+            if comment:
+                msg += " and added comment"
+            return msg
         except Exception as e:
             return f"Error adding link: {e}"
             
@@ -101,5 +110,5 @@ class StandardTicketTools:
 *   `post_comment(ticket_id, comment)`: Add a comment.
 *   `approve_gate(ticket_id, gate)`: Mark a phase as Approved (analysis, design, test).
 *   `reject_gate(ticket_id, gate)`: Mark a phase as Rejected.
-*   `add_link(ticket_id, title, url)`: Link an output artifact (doc/file) to the ticket.
+*   `add_link(ticket_id, title, url, comment)`: Link an output artifact (doc/file) to the ticket. Can optionally post a comment summarizing changes.
 """
