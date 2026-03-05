@@ -62,37 +62,12 @@ class RequirementsAgent(BaseAgent):
 1. **Search-First:** Use `search_file_content` or `list_files` to find EXACT context before using `read_file`. Do NOT blindly explore the whole repo.
 2. **Limit Reads:** Stick ONLY to the 'Primary Manifest' provided by the Orchestrator. If you identify a dependency outside this list, you may explore it, but you MUST state your reasoning in your 'Thought'.
 3. **No Redundancy:** If the Orchestrator provided a Knowledge Summary, do not re-read those sources unless verification is required.
-4. **Dynamic ID Discovery:** To assign an ID to a new requirement, you MUST perform "Discovery-by-Search". Use `search_files` to find the highest existing REQ number in `docs/requirements/` (e.g., search for "REQ-") and increment it for your new document. Do NOT name the file after the ticket ID.
-5. **Explicit Linking:** Once you create or update the markdown document, you MUST use the `add_link` tool to attach the artifact path (e.g., `docs/requirements/REQ-005.md`) to the current Plane ticket. This creates a permanent, clickable reference.
-6. **Inline Dependency Tracing:** For every individual requirement (UR, FR, NFR), you MUST evaluate if it depends on an external system or another requirement. If it does, simply append the tag `[PENDING LINK]` to the end of that specific requirement line. Do NOT attempt to search file contents for IDs or invent names; a specialized Linking Agent will resolve these tags later.
-    *   Example: `- **FR-9**: The system shall support switching agents. [PENDING LINK]`
-    *   Example: `- **FR-1**: The TUI shall display logs. (No dependency needed if it's internal to this component)`
-
-### FORMAL REQ-*.MD TEMPLATE:
-You MUST use this Markdown structure for all artifacts. Ensure you include the Traceability block at the top.
-# REQ-{{id}}: {{Title}}
-
-**Traceability:**
-- **Originating Ticket:** #{{id_of_epic_or_ticket}}
-- **Refinement Tickets:** #{{current_ticket_id}}
-
-## Introduction
-{{Context and high-level goal}}
-
-## User Requirements (UR)
-- **UR-1**: {{What the user expects}} {{[Optional: [PENDING LINK]]}}
-...
-
-## Functional Requirements (FR)
-- **FR-1**: {{System-level specific function}} {{[Optional: [PENDING LINK]]}}
-...
-
-## Non-Functional Requirements (NFR)
-- **NFR-1**: {{Performance, security, or UI standard}} {{[Optional: [PENDING LINK]]}}
-...
-
-## Assumptions & Constraints
-- **Constraint-1**: {{Limits or dependencies}}
+4. **Context Gathering:** ALWAYS check the Parent Epic of the ticket you are working on to gather high-level acceptance criteria.
+5. **Template Usage:** You MUST use the markdown template located at `docs/templates/REQ-TEMPLATE.md` to format your output. Read it first if you are unsure of the structure.
+6. **Dynamic ID Discovery:** To assign an ID to a new requirement, you MUST perform "Discovery-by-Search". Use `search_files` to find the highest existing REQ number in `docs/requirements/` (e.g., search for "REQ-") and increment it for your new document. Do NOT name the file after the ticket ID.
+7. **Namespace Branches:** When creating a git branch, you MUST prefix it with `docs/` (e.g., `docs/REQ-002`).
+8. **Explicit Linking:** Once you create or update the markdown document, you MUST use the `add_link` tool to attach the artifact path (e.g., `docs/requirements/REQ-005.md`) to the current Plane ticket. This creates a permanent, clickable reference.
+9. **Inline Dependency Tracing:** For every individual requirement (UR, FR, NFR), you MUST evaluate if it depends on an external system or another requirement. If it does, simply append the tag `[PENDING LINK]` to the end of that specific requirement line. Do NOT attempt to search file contents for IDs or invent names; a specialized Linking Agent will resolve these tags later.
 
 ### Available Tools:
 {self.tool_docs}
