@@ -273,6 +273,17 @@ class PlaneInteraction:
         self._handle_response(response)
         return f"Success: Added comment to Issue {issue_number}"
 
+    def delete_comment(self, issue_number: int, comment_id: str) -> str:
+        """Deletes a specific comment from an issue."""
+        issue_id = self._resolve_id(issue_number)
+        url = f"{self.base_url}/issues/{issue_id}/comments/{comment_id}/"
+        response = requests.delete(url, headers=self._get_headers())
+        if 200 <= response.status_code < 300:
+            return f"Success: Deleted comment {comment_id} from Issue {issue_number}"
+        else:
+            self._handle_response(response)
+            return "Failed to delete comment"
+
     def get_comments(self, issue_number: int) -> Any:
         issue_id = self._resolve_id(issue_number)
         url = f"{self.base_url}/issues/{issue_id}/comments/"
@@ -293,6 +304,17 @@ class PlaneInteraction:
         response = requests.post(endpoint, headers=self._get_headers(), json=payload)
         self._handle_response(response)
         return f"Success: Added link {url} to Issue {issue_number}"
+
+    def delete_issue_link(self, issue_number: int, link_id: str) -> str:
+        """Deletes a specific link from an issue."""
+        issue_id = self._resolve_id(issue_number)
+        url = f"{self.base_url}/issues/{issue_id}/links/{link_id}/"
+        response = requests.delete(url, headers=self._get_headers())
+        if 200 <= response.status_code < 300:
+            return f"Success: Deleted link {link_id} from Issue {issue_number}"
+        else:
+            self._handle_response(response)
+            return "Failed to delete link"
 
     def add_issue_relation(self, issue_number: int, related_issue_number: int, relation_type: str = "relates_to") -> str:
         source_id = self._resolve_id(issue_number)
