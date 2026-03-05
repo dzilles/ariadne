@@ -19,12 +19,14 @@ from src.agents.architect_agent import ArchitectAgent
 from src.agents.developer_agent import DeveloperAgent
 from src.agents.tester_agent import TesterAgent
 from src.agents.qa_agent import QualityAssuranceAgent
+from src.agents.qm_agent import QMAgent
 from src.agents.orchestrator_agent import OrchestratorAgent
 
 # Agent registry mapping names to classes
 AGENT_CLASSES = {
     "Product Owner": ProductOwnerAgent,
     "Requirements": RequirementsAgent,
+    "QM": QMAgent,
     "Architect": ArchitectAgent,
     "Developer": DeveloperAgent,
     "Tester": TesterAgent,
@@ -36,6 +38,7 @@ AGENT_CLASSES = {
 AGENT_DESCRIPTIONS = {
     "Product Owner": "Manages backlog and translates requirements into tickets",
     "Requirements": "Refines tickets into detailed requirement documents",
+    "QM": "Reviews requirement documents for completeness and clarity",
     "Architect": "Designs system architecture and technical specifications",
     "Developer": "Implements features and fixes bugs based on designs",
     "Tester": "Writes and executes automated tests",

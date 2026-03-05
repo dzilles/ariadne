@@ -51,12 +51,15 @@ CMD ["tail", "-f", "/dev/null"]
         f.write(dockerfile_content)
     
     # Create docker-compose.yml
-    docker_compose_content = """version: '3.8'
+    docker_compose_content = f"""version: '3.8'
 
 services:
   ariadne-sandbox:
     build: .
     container_name: ariadne-sandbox
+    user: "${{UID:-1000}}:${{GID:-1000}}"
+    environment:
+      - HOME=/workspace
     volumes:
       - ./workspace:/workspace
     network_mode: bridge
@@ -71,14 +74,19 @@ services:
     print("⏳ Building and starting the sandbox container (this may take a minute)...")
     
     try:
+        env = os.environ.copy()
+        if hasattr(os, 'getuid'):
+            env['UID'] = str(os.getuid())
+            env['GID'] = str(os.getgid())
+
         # Prefer 'docker compose' (V2), fallback to 'docker-compose' (V1)
         try:
-            subprocess.run(["docker", "compose", "version"], check=True, capture_output=True)
+            subprocess.run(["docker", "compose", "version"], check=True, capture_output=True, env=env)
             cmd = ["docker", "compose", "up", "-d", "--build"]
         except (subprocess.CalledProcessError, FileNotFoundError):
             cmd = ["docker-compose", "up", "-d", "--build"]
             
-        subprocess.run(cmd, cwd=str(sandbox_dir), check=True)
+        subprocess.run(cmd, cwd=str(sandbox_dir), check=True, env=env)
         print("🎉 Sandbox container started!")
         
         # Initialize git on the host so permissions remain correct for the user
