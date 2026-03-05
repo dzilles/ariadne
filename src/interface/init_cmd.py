@@ -81,20 +81,19 @@ services:
         subprocess.run(cmd, cwd=str(sandbox_dir), check=True)
         print("🎉 Sandbox container started!")
         
-        # Initialize git inside the container
+        # Initialize git on the host so permissions remain correct for the user
         print("🔧 Initializing Git repository in sandbox...")
-        init_cmds = [
-            "git config --global --add safe.directory /workspace",
-            "git config --global user.email 'ariadne@ai.com'",
-            "git config --global user.name 'Ariadne AI'",
-            "git init",
-            "git add docs/templates" if source_templates.exists() else "echo 'No templates to add'",
-            "git commit -m 'Initial commit with templates' || echo 'Nothing to commit'"
-        ]
+        subprocess.run(["git", "init"], cwd=str(workspace_dir), check=True)
+        subprocess.run(["git", "config", "user.email", "ariadne@ai.com"], cwd=str(workspace_dir), check=True)
+        subprocess.run(["git", "config", "user.name", "Ariadne AI"], cwd=str(workspace_dir), check=True)
         
-        # Combine commands into one shell execution
-        full_cmd = " && ".join(init_cmds)
-        subprocess.run(["docker", "exec", "ariadne-sandbox", "bash", "-c", full_cmd], check=True)
+        if source_templates.exists():
+            subprocess.run(["git", "add", "docs/templates"], cwd=str(workspace_dir), check=True)
+            
+        subprocess.run(["git", "commit", "-m", "Initial commit with templates", "--allow-empty"], cwd=str(workspace_dir), check=True)
+        
+        # Mark directory as safe inside the container
+        subprocess.run(["docker", "exec", "ariadne-sandbox", "git", "config", "--global", "--add", "safe.directory", "/workspace"], check=True)
         
         print("🎉 Sandbox environment is up and fully seeded!")
         print("You can interact with it via tools or manually using: docker exec -it ariadne-sandbox bash")
