@@ -44,8 +44,8 @@ class StandardTicketTools:
     def update_status(self, ticket_id: str, status: str) -> str:
         """
         Update ticket status.
-        Allowed values: 'Backlog', 'Ready for Analysis', 'Ready for Design', 
-        'Ready for Development', 'Ready for Testing', 'Ready for QA', 'Done'
+        Allowed values are dynamically defined by the TicketStatus enum.
+        (e.g., 'Ready for Analysis', 'Ready for Review', 'Ready for Design', 'Blocked', 'Done')
         """
         try:
             # Map string to Enum
@@ -103,10 +103,11 @@ class StandardTicketTools:
             return f"Error adding link: {e}"
             
     def get_tool_descriptions(self) -> str:
-        return """
+        allowed_statuses = ", ".join([f"'{s.value}'" for s in TicketStatus])
+        return f"""
 ### Ticket System Tools
 *   `get_ticket(ticket_id)`: Get full ticket details (User Story, Status, Comments).
-*   `update_status(ticket_id, status)`: Move ticket workflow (e.g., "Ready for Design").
+*   `update_status(ticket_id, status)`: Move ticket workflow. Allowed values: {allowed_statuses}
 *   `post_comment(ticket_id, comment)`: Add a comment.
 *   `approve_gate(ticket_id, gate)`: Mark a phase as Approved (analysis, design, test).
 *   `reject_gate(ticket_id, gate)`: Mark a phase as Rejected.
