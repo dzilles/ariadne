@@ -72,35 +72,38 @@ def jit_vmodel_guard(func: Callable) -> Callable:
 
 
         # 3. Block execution if wrong state
-
         status = ticket.status or "Backlog"
-
         rule = get_rule_for_status(status)
-
         if not rule:
-
             return f"System Error: No workflow rule defined for status '{status}'."
 
-
-
         tool_name = func.__name__
-
         if tool_name not in rule.allowed_actions:
-
             return (
-
                 f"⛔ ACTION BLOCKED: You cannot perform '{tool_name}' "
-
                 f"because Ticket #{ticket_id} is in '{status}'.\n"
-
                 f"Your allowed actions for this phase are: {rule.allowed_actions}"
-
             )
 
-
+        # 4. Enforce strict state transitions for update_status
+        if tool_name == "update_status":
+            target_status = kwargs.get('status')
+            if not target_status and len(args) > 2:
+                target_status = args[2]  # args is (self, ticket_id, status)
+                
+            if target_status:
+                from src.interfaces.ticket_system import TicketStatus
+                allowed_next = [TicketStatus.BLOCKED.value]
+                if rule.next_state:
+                    allowed_next.append(rule.next_state.value)
+                    
+                if target_status not in allowed_next and target_status != status:
+                    return (
+                        f"⛔ STATE TRANSITION BLOCKED: Cannot move ticket from '{status}' to '{target_status}'. "
+                        f"Allowed next states from here are: {allowed_next}"
+                    )
 
         # Execute the original tool
-
         return func(*args, **kwargs)
 
 

@@ -31,9 +31,22 @@ class BaseAgent:
 
     def _init_executor(self, tools: list, system_message: str):
         """Initializes the underlying LangGraph React agent."""
+        self.system_message = system_message
+        self.tools = tools
         self.agent_executor = create_react_agent(self.llm, tools, prompt=system_message)
         # Increase recursion limit to avoid early termination on complex tasks
         self.agent_executor.config = {"recursion_limit": 50}
+
+    def set_mission_instructions(self, instructions: str):
+        """Updates the agent's system prompt with dynamic mission-specific instructions."""
+        new_prompt = f"{self.system_message}\n\n{instructions}"
+        # Since agent_executor is already created, we need to re-initialize it or 
+        # ensure the prompt is passed dynamically. create_react_agent doesn't 
+        # easily support prompt updates after creation without re-initializing.
+        # So we re-initialize the executor.
+        self.agent_executor = create_react_agent(self.llm, self.tools, prompt=new_prompt)
+        self.agent_executor.config = {"recursion_limit": 50}
+        logger.info("Agent mission instructions updated.")
 
     def get_history(self) -> List[dict]:
         """Returns the current chat history as a serializable list of dicts."""
