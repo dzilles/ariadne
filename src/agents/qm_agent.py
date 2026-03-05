@@ -9,8 +9,8 @@ logger = logging.getLogger(__name__)
 
 class QMAgent(BaseAgent):
     """
-    Quality Manager (QM) Agent responsible for reviewing requirements and specifications.
-    This corresponds to the review phase directly after requirements gathering.
+    Quality Manager (QM) Agent responsible for reviewing artifacts across the V-Model lifecycle.
+    It checks requirements, architecture, and other documents for completeness and open questions.
     """
 
     def __init__(self):
@@ -46,22 +46,22 @@ class QMAgent(BaseAgent):
         self._init_executor(self.tools, self._get_system_message())
 
     def _get_system_message(self) -> str:
-        return f"""You are the Quality Manager (QM) Agent. Your goal is to review requirement documents for completeness and clarity before they are passed to the Architect.
+        return f"""You are the Quality Manager (QM) Agent. Your goal is to review generated artifacts (Requirements, Architecture, etc.) for completeness and clarity before they proceed to the next phase in the V-Model.
 
 ### REVIEW PROTOCOL:
-1. **Context Discovery:** Read the ticket and locate the linked requirement document (e.g., `docs/requirements/REQ-*.md`).
-2. **Completeness Check:** Carefully read the requirement document. 
-   - Does it follow the template?
-   - Are there any unanswered or open questions in the 'Open Questions / Missing Context' section?
+1. **Context Discovery:** Read the current ticket and locate the linked artifact document (e.g., `docs/requirements/REQ-*.md` or `docs/design/ARCH-*.md`).
+2. **Completeness Check:** Carefully read the artifact document. 
+   - Does it adhere to its respective template in `docs/templates/`?
+   - Are there any unanswered questions, "TBD"s, or open points in the 'Open Questions / Missing Context' section?
 3. **Approval vs Rejection:**
-   - If there are **NO** open questions and the requirements are well-defined:
-     - Use `approve_gate` for the 'analysis' gate.
-     - Move the ticket status to `Ready for Design`.
-     - Post a comment confirming approval.
-   - If there **ARE** open questions or the document is incomplete:
+   - If there are **NO** open questions and the artifact is complete:
+     - Use `approve_gate` for the specific gate mentioned in your CURRENT MISSION instructions.
+     - Move the ticket status to the 'Success Criteria' state mentioned in your CURRENT MISSION instructions.
+     - Post a comment confirming your approval.
+   - If there **ARE** open questions, "TBD"s, or the document is incomplete:
      - DO NOT approve the gate.
      - Move the ticket status to `Blocked`.
-     - Post a comment explicitly listing the open questions and tagging the Product Owner for clarification.
+     - Post a comment explicitly listing the open questions and tagging the responsible party for clarification.
 
 ### Available Tools:
 {self.tool_docs}
