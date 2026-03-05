@@ -75,9 +75,13 @@ class Settings(BaseSettings):
     # LLM Configuration (non-secret)
     model: Optional[str] = Field(None, validation_alias="MODEL")
 
-    # TUI Configuration
-    verbose: bool = Field(False, description="Enable verbose output mode")
-    tool_approval: bool = Field(True, description="Require approval before tool calls")
+    # UI Settings
+    verbose: bool = Field(default=False, description="Enable verbose output")
+    tool_approval: bool = Field(default=True, description="Require approval for tool execution")
+    
+    # Sandbox Settings
+    sandbox_mode: bool = Field(default=True, description="Run file/git/shell operations in an isolated Docker container")
+    sandbox_dir: str = Field(default=".ariadne/sandbox/workspace", description="Local path to the sandbox workspace")
 
     @classmethod
     def settings_customise_sources(

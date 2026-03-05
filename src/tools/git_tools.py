@@ -16,7 +16,7 @@ class GitAgentTools:
         """
         Initialize the Git wrapper using the project path from settings.
         """
-        self.project_path = settings.project_path
+        self.project_path = settings.sandbox_dir if settings.sandbox_mode else settings.project_path
         try:
             self.repo = Repo(self.project_path)
             logger.info(f"Git initialized for repo at {self.project_path}")

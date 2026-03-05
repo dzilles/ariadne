@@ -1,6 +1,7 @@
 import subprocess
 import logging
 from src.workflows.enforcement import jit_vmodel_guard
+from src.configuration.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -17,13 +18,25 @@ class ShellAgentTools:
         Args:
             command: The bash command to execute.
         """
-        msg = f"[Tool: run_shell_command called for '{command}']"
+        if settings.sandbox_mode:
+            # Wrap the command to execute inside the docker container
+            # We use base64 encoding to avoid complex escaping issues
+            import base64
+            encoded_cmd = base64.b64encode(command.encode('utf-8')).decode('utf-8')
+            docker_cmd = f"docker exec -w /workspace ariadne-sandbox bash -c 'echo {encoded_cmd} | base64 -d | bash'"
+            actual_command = docker_cmd
+            msg_prefix = "[Tool (SANDBOX): run_shell_command"
+        else:
+            actual_command = command
+            msg_prefix = "[Tool: run_shell_command"
+
+        msg = f"{msg_prefix} called for '{command}']"
         print(f"\n{msg}")
         logger.info(msg)
         
         try:
             result = subprocess.run(
-                command, shell=True, capture_output=True, text=True, timeout=120
+                actual_command, shell=True, capture_output=True, text=True, timeout=120
             )
             output = f"Exit Code: {result.returncode}\n"
             if result.stdout:
