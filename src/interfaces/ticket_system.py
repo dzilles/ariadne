@@ -16,6 +16,7 @@ class TicketStatus(str, Enum):
     READY_FOR_TESTING = "Ready for Testing"
     READY_FOR_QA = "Ready for QA"
     DONE = "Done"
+    BLOCKED = "Blocked"
 
 class GateStatus(str, Enum):
     PENDING = "Pending"

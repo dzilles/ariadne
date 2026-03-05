@@ -87,6 +87,15 @@ WORKFLOW_RULES: List[WorkflowRule] = [
         # Only allow reopening the ticket or commenting
         allowed_actions=["update_status", "post_comment", "read_file"],
         next_state=None
+    ),
+
+    # 8. Blocked
+    WorkflowRule(
+        current_state=TicketStatus.BLOCKED,
+        agent_name="Orchestrator",
+        description="Task is blocked due to missing information or dependencies. Wait for user or Product Owner clarification.",
+        allowed_actions=["update_status", "post_comment", "read_file"],
+        next_state=None
     )
 ]
 

@@ -68,6 +68,7 @@ class RequirementsAgent(BaseAgent):
 7. **Namespace Branches:** When creating a git branch, you MUST prefix it with `docs/` (e.g., `docs/REQ-002`).
 8. **Explicit Linking:** Once you create or update the markdown document, you MUST use the `add_link` tool to attach the artifact path (e.g., `docs/requirements/REQ-005.md`) to the current Plane ticket. This creates a permanent, clickable reference.
 9. **Inline Dependency Tracing:** For every individual requirement (UR, FR, NFR), you MUST evaluate if it depends on an external system or another requirement. If it does, simply append the tag `[PENDING LINK]` to the end of that specific requirement line. Do NOT attempt to search file contents for IDs or invent names; a specialized Linking Agent will resolve these tags later.
+10. **Blocked State for Open Questions:** If you encounter missing context or have open questions that prevent you from completing the requirements definitively, you MUST document these questions in the 'Open Questions / Missing Context' section of the template and move the ticket status to `Blocked` (instead of `Ready for Design`).
 
 ### Available Tools:
 {self.tool_docs}
