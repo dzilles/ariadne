@@ -2,7 +2,6 @@ import logging
 from src.ariadne.agents.base_agent import BaseAgent
 from src.ariadne.tools.file_tools import FileAgentTools
 from src.ariadne.tools.git_tools import GitAgentTools
-from src.ariadne.work_items.tools import StandardTicketTools
 from src.ariadne.tools.tool_wrapper import wrap_tools_with_error_handling
 from src.ariadne.infrastructure.container import DependencyRegistry
 
@@ -17,7 +16,7 @@ class TesterAgent(BaseAgent):
         super().__init__("TESTER_AGENT_API_KEY")
 
         try:
-            self.ticket_tools = ticket_tools or DependencyRegistry.get_ticket_tools()
+            self.ticket_tools = ticket_tools or DependencyRegistry.get_work_item_tools()
             self.file_tools = file_tools or DependencyRegistry.get_file_tools()
             self.git_tools = git_tools or DependencyRegistry.get_git_tools()
         except Exception as e:
@@ -25,7 +24,7 @@ class TesterAgent(BaseAgent):
             raise
 
         # Map to expected tool names
-        self.get_ticket_details = self.ticket_tools.get_ticket
+        self.get_ticket_details = self.ticket_tools.get_work_item
         self.update_ticket = self.ticket_tools.update_status
         self.add_comment = self.ticket_tools.post_comment
 

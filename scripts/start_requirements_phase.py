@@ -1,5 +1,11 @@
+import sys
+import os
+
+# Add project root to path
+sys.path.append(os.getcwd())
+
 from headless_ariadne import HeadlessAriadne
-from src.workflows.context import set_active_ticket_id
+from src.ariadne.workflows.context import set_active_ticket_id
 
 def run():
     a = HeadlessAriadne()

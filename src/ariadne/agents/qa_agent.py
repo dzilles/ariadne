@@ -1,7 +1,6 @@
 import logging
 from src.ariadne.agents.base_agent import BaseAgent
 from src.ariadne.tools.file_tools import FileAgentTools
-from src.ariadne.work_items.tools import StandardTicketTools
 from src.ariadne.tools.tool_wrapper import wrap_tools_with_error_handling
 from src.ariadne.infrastructure.container import DependencyRegistry
 
@@ -16,14 +15,14 @@ class QualityAssuranceAgent(BaseAgent):
         super().__init__("QA_AGENT_API_KEY")
 
         try:
-            self.ticket_tools = ticket_tools or DependencyRegistry.get_ticket_tools()
+            self.ticket_tools = ticket_tools or DependencyRegistry.get_work_item_tools()
             self.file_tools = file_tools or DependencyRegistry.get_file_tools()
         except Exception as e:
             logger.error(f"Failed to initialize tools: {e}")
             raise
 
         # Map to expected tool names
-        self.get_ticket_details = self.ticket_tools.get_ticket
+        self.get_ticket_details = self.ticket_tools.get_work_item
         self.update_ticket = self.ticket_tools.update_status
         self.add_comment = self.ticket_tools.post_comment
 

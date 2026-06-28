@@ -82,7 +82,7 @@ class SQLiteWorkItemStore(WorkItemStore):
             
             conn.commit()
 
-    def create_ticket(self, title: str, description: str, type: WorkItemType, priority: str) -> str:
+    def create_work_item(self, title: str, description: str, type: WorkItemType, priority: str) -> str:
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
@@ -93,19 +93,19 @@ class SQLiteWorkItemStore(WorkItemStore):
             conn.commit()
             return str(ticket_id)
 
-    def get_ticket(self, ticket_id: str) -> WorkItem:
+    def get_work_item(self, work_item_id: str) -> WorkItem:
         with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             
             # Fetch work item.
-            cursor.execute("SELECT * FROM tickets WHERE id = ?", (ticket_id,))
+            cursor.execute("SELECT * FROM tickets WHERE id = ?", (work_item_id,))
             row = cursor.fetchone()
             if not row:
-                raise ValueError(f"Work item {ticket_id} not found.")
+                raise ValueError(f"Work item {work_item_id} not found.")
 
             # Fetch Comments
-            cursor.execute("SELECT * FROM comments WHERE ticket_id = ? ORDER BY created_at ASC", (ticket_id,))
+            cursor.execute("SELECT * FROM comments WHERE ticket_id = ? ORDER BY created_at ASC", (work_item_id,))
             comment_rows = cursor.fetchall()
             comments = [
                 Comment(
@@ -117,14 +117,14 @@ class SQLiteWorkItemStore(WorkItemStore):
             ]
 
             # Fetch Artifacts
-            cursor.execute("SELECT * FROM artifacts WHERE ticket_id = ?", (ticket_id,))
+            cursor.execute("SELECT * FROM artifacts WHERE ticket_id = ?", (work_item_id,))
             artifact_rows = cursor.fetchall()
             artifacts = [
                 ArtifactLink(title=r['title'], url=r['url']) for r in artifact_rows
             ]
 
             # Fetch Assignees
-            cursor.execute("SELECT name FROM assignees WHERE ticket_id = ?", (ticket_id,))
+            cursor.execute("SELECT name FROM assignees WHERE ticket_id = ?", (work_item_id,))
             assignee_rows = cursor.fetchall()
             assignees = [r['name'] for r in assignee_rows]
 
@@ -142,7 +142,7 @@ class SQLiteWorkItemStore(WorkItemStore):
                 gate_test_status=GateStatus(row['gate_test_status'])
             )
 
-    def search_tickets(self, query: str) -> List[WorkItem]:
+    def search_work_items(self, query: str) -> List[WorkItem]:
         with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
@@ -151,40 +151,40 @@ class SQLiteWorkItemStore(WorkItemStore):
                 (f"%{query}%", f"%{query}%")
             )
             rows = cursor.fetchall()
-            return [self.get_ticket(str(r['id'])) for r in rows]
+            return [self.get_work_item(str(r['id'])) for r in rows]
 
-    def update_status(self, ticket_id: str, status: WorkItemStatus) -> None:
+    def update_status(self, work_item_id: str, status: WorkItemStatus) -> None:
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 "UPDATE tickets SET status = ? WHERE id = ?",
-                (status.value, ticket_id)
+                (status.value, work_item_id)
             )
             if cursor.rowcount == 0:
-                raise ValueError(f"Work item {ticket_id} not found.")
+                raise ValueError(f"Work item {work_item_id} not found.")
             conn.commit()
 
-    def update_description(self, ticket_id: str, description: str) -> None:
+    def update_description(self, work_item_id: str, description: str) -> None:
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 "UPDATE tickets SET description = ? WHERE id = ?",
-                (description, ticket_id)
+                (description, work_item_id)
             )
             conn.commit()
 
-    def post_comment(self, ticket_id: str, text: str) -> None:
+    def post_comment(self, work_item_id: str, text: str) -> None:
         # For local DB, we can use 'System' or current user as author
         author = "Ariadne" 
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 "INSERT INTO comments (ticket_id, text, author) VALUES (?, ?, ?)",
-                (ticket_id, text, author)
+                (work_item_id, text, author)
             )
             conn.commit()
 
-    def set_gate_status(self, ticket_id: str, gate: str, status: GateStatus) -> None:
+    def set_gate_status(self, work_item_id: str, gate: str, status: GateStatus) -> None:
         gate_col = f"gate_{gate.lower()}_status"
         # Validate column to prevent injection (though gate is controlled by Enum/Internal logic)
         if gate_col not in ['gate_analysis_status', 'gate_design_status', 'gate_test_status']:
@@ -194,32 +194,32 @@ class SQLiteWorkItemStore(WorkItemStore):
             cursor = conn.cursor()
             cursor.execute(
                 f"UPDATE tickets SET {gate_col} = ? WHERE id = ?",
-                (status.value, ticket_id)
+                (status.value, work_item_id)
             )
             conn.commit()
 
-    def add_artifact_link(self, ticket_id: str, title: str, url: str, comment: str = None) -> None:
+    def add_artifact_link(self, work_item_id: str, title: str, url: str, comment: str = None) -> None:
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 "INSERT INTO artifacts (ticket_id, title, url) VALUES (?, ?, ?)",
-                (ticket_id, title, url)
+                (work_item_id, title, url)
             )
             conn.commit()
             if comment:
-                self.post_comment(ticket_id, comment)
+                self.post_comment(work_item_id, comment)
 
-    def get_blockers(self, ticket_id: str) -> List[str]:
+    def get_blockers(self, work_item_id: str) -> List[str]:
         # TODO: Implement work item relations in SQLite if needed.
         return []
 
-    def list_tickets(self) -> List[WorkItem]:
+    def list_work_items(self) -> List[WorkItem]:
         with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             cursor.execute("SELECT id FROM tickets ORDER BY created_at DESC")
             rows = cursor.fetchall()
-            return [self.get_ticket(str(r['id'])) for r in rows]
+            return [self.get_work_item(str(r['id'])) for r in rows]
 
 
 # Backwards-compatible name while callers are migrated.

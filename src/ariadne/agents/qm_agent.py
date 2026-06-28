@@ -1,7 +1,6 @@
 import logging
 from src.ariadne.agents.base_agent import BaseAgent
 from src.ariadne.tools.file_tools import FileAgentTools
-from src.ariadne.work_items.tools import StandardTicketTools
 from src.ariadne.tools.tool_wrapper import wrap_tools_with_error_handling
 from src.ariadne.infrastructure.container import DependencyRegistry
 
@@ -17,7 +16,7 @@ class QMAgent(BaseAgent):
         super().__init__("QM_AGENT_API_KEY")
 
         try:
-            self.ticket_tools = ticket_tools or DependencyRegistry.get_ticket_tools()
+            self.ticket_tools = ticket_tools or DependencyRegistry.get_work_item_tools()
             self.file_tools = file_tools or DependencyRegistry.get_file_tools()
             
         except Exception as e:
@@ -25,7 +24,7 @@ class QMAgent(BaseAgent):
             raise
 
         raw_tools = [
-            self.ticket_tools.get_ticket,
+            self.ticket_tools.get_work_item,
             self.ticket_tools.update_status,
             self.ticket_tools.post_comment,
             self.ticket_tools.approve_gate,

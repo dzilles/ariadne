@@ -17,7 +17,7 @@ class RequirementsAgent(BaseAgent):
         super().__init__("REQUIREMENTS_AGENT_API_KEY")
 
         try:
-            self.ticket_tools = ticket_tools or DependencyRegistry.get_ticket_tools()
+            self.ticket_tools = ticket_tools or DependencyRegistry.get_work_item_tools()
             self.file_tools = file_tools or DependencyRegistry.get_file_tools()
             self.git_tools = git_tools or DependencyRegistry.get_git_tools()
             
@@ -26,7 +26,7 @@ class RequirementsAgent(BaseAgent):
             raise
 
         raw_tools = [
-            self.ticket_tools.get_ticket,
+            self.ticket_tools.get_work_item,
             self.ticket_tools.update_status,
             self.ticket_tools.post_comment,
             self.ticket_tools.approve_gate,

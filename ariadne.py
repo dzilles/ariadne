@@ -10,7 +10,7 @@ from rich.panel import Panel
 def list_work_items():
     """List all work items from the configured store."""
     tools = DependencyRegistry.get_work_item_tools()
-    work_items = tools.system.list_tickets()
+    work_items = tools.system.list_work_items()
     
     console = Console()
     table = Table(title="Ariadne Work Items (SQLite)")
@@ -37,7 +37,7 @@ def get_work_item_details(work_item_id: str):
     # Use the tool's get_ticket which already formats it nicely for LLMs,
     # or use the system directly for raw data.
     # Let's use the tool and wrap it in a Rich Panel for the CLI.
-    details = tools.get_ticket(work_item_id)
+    details = tools.get_work_item(work_item_id)
     
     console = Console()
     console.print(Panel(details, title=f"Work Item #{work_item_id}", expand=False))
@@ -59,7 +59,7 @@ def create_work_item(title: str, description: str, work_item_type: str):
         print(f"Error: Invalid work item type '{work_item_type}'. Allowed: {[t.value for t in WorkItemType]}")
         return
 
-    item_id = tools.system.create_ticket(
+    item_id = tools.system.create_work_item(
         title=title,
         description=description,
         type=item_type,

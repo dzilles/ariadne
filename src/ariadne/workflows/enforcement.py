@@ -34,7 +34,8 @@ def jit_vmodel_guard(func: Callable) -> Callable:
 
         try:
             store = get_ticket_system()
-            work_item = store.get_ticket(work_item_id)
+            get_work_item = getattr(store, "get_work_item", None)
+            work_item = get_work_item(work_item_id) if get_work_item else store.get_ticket(work_item_id)
 
             get_blockers = getattr(store, "get_blockers", None)
             blockers = get_blockers(work_item.id) if get_blockers else []

@@ -64,37 +64,37 @@ class WorkItemStore(ABC):
     """
 
     @abstractmethod
-    def create_ticket(self, title: str, description: str, type: WorkItemType, priority: str) -> str:
+    def create_work_item(self, title: str, description: str, type: WorkItemType, priority: str) -> str:
         """Create a new work item and return its ID."""
         pass
 
     @abstractmethod
-    def get_ticket(self, ticket_id: str) -> WorkItem:
+    def get_work_item(self, work_item_id: str) -> WorkItem:
         """Retrieve a standardized work item object."""
         pass
 
     @abstractmethod
-    def search_tickets(self, query: str) -> List[WorkItem]:
+    def search_work_items(self, query: str) -> List[WorkItem]:
         """Search for work items matching a query."""
         pass
 
     @abstractmethod
-    def update_status(self, ticket_id: str, status: WorkItemStatus) -> None:
+    def update_status(self, work_item_id: str, status: WorkItemStatus) -> None:
         """Update the main workflow status of a work item."""
         pass
 
     @abstractmethod
-    def update_description(self, ticket_id: str, description: str) -> None:
+    def update_description(self, work_item_id: str, description: str) -> None:
         """Update the main description (Markdown)."""
         pass
 
     @abstractmethod
-    def post_comment(self, ticket_id: str, text: str) -> None:
-        """Post a comment to the ticket."""
+    def post_comment(self, work_item_id: str, text: str) -> None:
+        """Post a comment to the work item."""
         pass
 
     @abstractmethod
-    def set_gate_status(self, ticket_id: str, gate: str, status: GateStatus) -> None:
+    def set_gate_status(self, work_item_id: str, gate: str, status: GateStatus) -> None:
         """
         Set the status of a specific gate.
         gate: 'analysis', 'design', 'test'
@@ -102,19 +102,35 @@ class WorkItemStore(ABC):
         pass
 
     @abstractmethod
-    def add_artifact_link(self, ticket_id: str, title: str, url: str, comment: str = None) -> None:
+    def add_artifact_link(self, work_item_id: str, title: str, url: str, comment: str = None) -> None:
         """Add a link to an external artifact (file, doc, etc) and optionally post a comment."""
         pass
 
     @abstractmethod
-    def get_blockers(self, ticket_id: str) -> List[str]:
+    def get_blockers(self, work_item_id: str) -> List[str]:
         """Return a list of work item IDs that block this work item."""
         pass
 
     @abstractmethod
-    def list_tickets(self) -> List[WorkItem]:
+    def list_work_items(self) -> List[WorkItem]:
         """List all work items in the system."""
         pass
+
+    def create_ticket(self, title: str, description: str, type: WorkItemType, priority: str) -> str:
+        """Backward-compatible alias for create_work_item."""
+        return self.create_work_item(title, description, type, priority)
+
+    def get_ticket(self, ticket_id: str) -> WorkItem:
+        """Backward-compatible alias for get_work_item."""
+        return self.get_work_item(ticket_id)
+
+    def search_tickets(self, query: str) -> List[WorkItem]:
+        """Backward-compatible alias for search_work_items."""
+        return self.search_work_items(query)
+
+    def list_tickets(self) -> List[WorkItem]:
+        """Backward-compatible alias for list_work_items."""
+        return self.list_work_items()
 
 
 # Backwards-compatible names while callers are migrated.

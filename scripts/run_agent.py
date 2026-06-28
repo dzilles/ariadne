@@ -1,7 +1,12 @@
 import sys
+import os
+
+# Add project root to path
+sys.path.append(os.getcwd())
+
 from headless_ariadne import HeadlessAriadne
-from src.workflows.context import set_active_ticket_id
-from src.workflows.rules import get_rule_for_status, generate_instructions
+from src.ariadne.workflows.context import set_active_ticket_id
+from src.ariadne.workflows.rules import get_rule_for_status, generate_instructions
 
 def run(agent_name: str, ticket_id: str, instruction: str):
     a = HeadlessAriadne()
@@ -31,7 +36,7 @@ def run(agent_name: str, ticket_id: str, instruction: str):
 
 if __name__ == "__main__":
     if len(sys.argv) < 4:
-        print("Usage: python run_agent.py <AgentName> <TicketID> <Instruction>")
+        print("Usage: python scripts/run_agent.py <AgentName> <TicketID> <Instruction>")
         sys.exit(1)
         
     run(sys.argv[1], sys.argv[2], sys.argv[3])
