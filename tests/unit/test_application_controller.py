@@ -5,7 +5,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import src.ariadne.application.controller as controller_module
 from src.ariadne.application.controller import AriadneApplicationController
-from src.ariadne.application.ui_contract import WorkItemInfo
+from src.ariadne.application.ui_contract import RunEvent, WorkItemInfo
+from src.ariadne.ui.message import BotResponse
 
 
 class FakeAgent:
@@ -139,3 +140,38 @@ def test_token_usage_translation_uses_contract_type():
     assert usages[0].input_tokens == 11
     assert usages[0].output_tokens == 13
     assert usages[0].total_tokens == 24
+
+
+def test_run_event_adds_visible_activity_line():
+    controller = AriadneApplicationController(
+        {"Fake": FakeAgent},
+        {"Fake": "fake agent"},
+        reset_session_approval_func=lambda: None,
+    )
+    response = BotResponse()
+
+    controller._apply_run_event(
+        response,
+        RunEvent("thinking", detail="Model request started..."),
+    )
+
+    assert response.tool_results[0].label == "Model"
+    assert response.tool_results[0].detail == "Model request started..."
+    assert response.status.label == "Thinking"
+
+
+def test_run_finished_event_adds_visible_activity_line():
+    controller = AriadneApplicationController(
+        {"Fake": FakeAgent},
+        {"Fake": "fake agent"},
+        reset_session_approval_func=lambda: None,
+    )
+    response = BotResponse()
+
+    controller._apply_run_event(
+        response,
+        RunEvent("run_finished", detail="Finished in 1.2s", duration_seconds=1.2),
+    )
+
+    assert response.tool_results[0].label == "Run"
+    assert response.tool_results[0].detail == "Finished in 1.2s"

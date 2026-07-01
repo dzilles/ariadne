@@ -23,3 +23,13 @@ def test_token_only_response_is_visible():
     )
 
     assert response.has_content()
+
+
+def test_activity_line_is_visible():
+    response = BotResponse()
+
+    response.activity("Model", "Model request started...")
+
+    assert response.has_content()
+    assert response.tool_results[0].label == "Model"
+    assert response.tool_results[0].detail == "Model request started..."

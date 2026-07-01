@@ -1,13 +1,24 @@
 """Application-facing interfaces for Ariadne."""
 
-from .ui_contract import AgentInfo, CommandResult, TokenUsage, ToolEvent, WorkItemInfo
+from .ui_contract import (
+    AgentInfo,
+    CommandResult,
+    RunEvent,
+    TokenUsage,
+    ToolEvent,
+    WorkItemInfo,
+)
+from .commands import APPLICATION_COMMANDS, ApplicationCommandSpec
 
 __all__ = [
     "AriadneApplicationController",
     "AGENT_CLASSES",
     "AGENT_DESCRIPTIONS",
+    "APPLICATION_COMMANDS",
     "AgentInfo",
+    "ApplicationCommandSpec",
     "CommandResult",
+    "RunEvent",
     "TokenUsage",
     "ToolEvent",
     "WorkItemInfo",

@@ -7,6 +7,18 @@ from typing import Literal
 
 
 ToolStatus = Literal["start", "success", "error", "cancelled"]
+RunEventType = Literal[
+    "run_started",
+    "run_finished",
+    "thinking",
+    "response_start",
+    "response_delta",
+    "tool_start",
+    "token_usage",
+    "complete",
+    "error",
+    "cancelled",
+]
 
 
 @dataclass(frozen=True)
@@ -45,6 +57,14 @@ class TokenUsage:
             total_tokens=int(usage.get("total_tokens", 0) or 0),
         )
 
+    def to_dict(self) -> dict[str, int]:
+        """Convert token usage to the UI's dictionary shape."""
+        return {
+            "input_tokens": self.input_tokens,
+            "output_tokens": self.output_tokens,
+            "total_tokens": self.total_tokens,
+        }
+
 
 @dataclass(frozen=True)
 class ToolEvent:
@@ -54,6 +74,20 @@ class ToolEvent:
     status: ToolStatus
     args: dict
     result: str = ""
+
+
+@dataclass(frozen=True)
+class RunEvent:
+    """Agent run event suitable for UI rendering."""
+
+    type: RunEventType
+    message: str = ""
+    detail: str = ""
+    tool_name: str = ""
+    run_id: str = ""
+    agent_name: str = ""
+    duration_seconds: float | None = None
+    usage: TokenUsage | None = None
 
 
 @dataclass(frozen=True)

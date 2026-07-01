@@ -169,6 +169,13 @@ class BotResponse:
         """Set status to a tool call."""
         return self.set_status(f"Tool: {name}", detail)
 
+    def activity(self, label: str, detail: str = "") -> "BotResponse":
+        """Add a visible activity line to the response timeline."""
+        status = StatusLine(label=label, detail=detail)
+        self.tool_results.append(status)
+        self._notify_update()
+        return self
+
     def tool_error(self, name: str, detail: str = "") -> "BotResponse":
         """Add a persistent tool error."""
         return self.add_error(f"Tool Failed: {name}", detail)

@@ -4,13 +4,13 @@ This module integrates the sophisticated TUI library with the project's
 V-Model agents (Orchestrator, Requirements, Engineer).
 """
 
-import json
 import logging
-import os
 from typing import Any
 
 from src.ariadne.ui import ChatUI, Agent, BotResponse
+from src.ariadne.application.commands import APPLICATION_COMMANDS
 from src.ariadne.application.controller import AriadneApplicationController
+from src.ariadne.application.settings_store import update_user_setting
 from src.ariadne.application.ui_contract import (
     CommandResult,
     TokenUsage,
@@ -22,34 +22,6 @@ from src.ariadne.config.settings import settings
 from src.ariadne.infrastructure.logging import setup_logging
 
 logger = logging.getLogger(__name__)
-
-# Settings persistence
-SETTINGS_DIR = ".ariadne"
-SETTINGS_FILE = os.path.join(SETTINGS_DIR, "user_settings.json")
-
-
-def _load_user_settings() -> dict:
-    """Load user settings from file."""
-    if not os.path.exists(SETTINGS_FILE):
-        return {}
-    try:
-        with open(SETTINGS_FILE, "r") as f:
-            return json.load(f)
-    except Exception as e:
-        logger.warning(f"Failed to load user settings: {e}")
-        return {}
-
-
-def _save_user_settings(data: dict) -> bool:
-    """Save user settings to file."""
-    try:
-        os.makedirs(SETTINGS_DIR, exist_ok=True)
-        with open(SETTINGS_FILE, "w") as f:
-            json.dump(data, f, indent=2)
-        return True
-    except Exception as e:
-        logger.error(f"Failed to save user settings: {e}")
-        return False
 
 
 def configure_logging() -> None:
@@ -104,13 +76,8 @@ class AriadneTUI:
         """Create the command registry with project-specific commands."""
         commands = create_default_commands()
 
-        # Add project-specific commands
-        commands.add("save", "Save chat history for current agent")
-        commands.add("load", "Load chat history for current agent")
-        commands.add("history", "Show history status for all agents")
-        commands.add("clearhistory", "Clear saved history for current agent")
-        commands.add("secret", "Manage API keys in secure vault", "[key] [value]")
-        commands.add("copy", "Copy last response to clipboard")
+        for command in APPLICATION_COMMANDS:
+            commands.add(command.name, command.description, command.args)
         return commands
 
     def _register_handlers(self) -> None:
@@ -150,10 +117,7 @@ class AriadneTUI:
         # Settings change handler - persist and reinitialize agents
         @self.ui.on_settings_change
         def on_settings_change(field_name: str, value: Any) -> None:
-            # Save to persistent storage
-            user_settings = _load_user_settings()
-            user_settings[field_name] = value
-            _save_user_settings(user_settings)
+            update_user_setting(field_name, value)
 
             # Handle tool_approval setting change
             if field_name == "tool_approval":

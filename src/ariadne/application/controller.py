@@ -22,7 +22,14 @@ from .history import (
     save_history,
 )
 
-from .ui_contract import AgentInfo, CommandResult, TokenUsage, ToolEvent, WorkItemInfo
+from .ui_contract import (
+    AgentInfo,
+    CommandResult,
+    RunEvent,
+    TokenUsage,
+    ToolEvent,
+    WorkItemInfo,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -216,13 +223,50 @@ class AriadneApplicationController:
     async def handle_user_message(self, message: str, response: Any) -> None:
         """Send a user message to the active agent."""
         if self._current_agent:
-            from .agent_runner import handle_message
+            from .agent_runner import run_agent
 
-            await handle_message(message, response, self._current_agent)
+            await run_agent(
+                message,
+                self._current_agent,
+                emit=lambda event: self._apply_run_event(response, event),
+                is_cancelled=lambda: bool(getattr(response, "is_cancelled", False)),
+            )
         elif self._init_error:
             response.error(self._init_error)
         else:
             response.error("No agent selected. Use /agent to select one.")
+
+    def _apply_run_event(self, response: Any, event: RunEvent) -> None:
+        """Render a structured run event into the current UI response."""
+        if event.type == "run_started":
+            if hasattr(response, "activity"):
+                response.activity("Run", event.detail)
+        elif event.type == "run_finished":
+            if hasattr(response, "activity"):
+                response.activity("Run", event.detail)
+        elif event.type == "thinking":
+            if hasattr(response, "activity"):
+                response.activity("Model", event.detail or event.message)
+            response.thinking(event.detail or event.message)
+        elif event.type == "response_start":
+            response.start_response()
+        elif event.type == "response_delta":
+            response.append_response(event.message)
+        elif event.type == "tool_start":
+            if hasattr(response, "activity"):
+                response.activity(f"Tool: {event.tool_name}", event.detail)
+            response.tool(event.tool_name, event.detail)
+        elif event.type == "token_usage" and event.usage:
+            response.set_token_usage(event.usage.to_dict())
+        elif event.type == "complete":
+            response.complete(event.message)
+        elif event.type == "error":
+            response.error(event.message)
+        elif event.type == "cancelled":
+            if hasattr(response, "activity") and event.detail:
+                response.activity("Run", event.detail)
+            if not getattr(response, "is_cancelled", False):
+                response.cancel()
 
     def load_initial_agent(self) -> CommandResult:
         """Initialize the default agent and auto-load history when available."""
