@@ -1,8 +1,8 @@
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import List
+from typing import Any, List
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class WorkItemType(str, Enum):
@@ -38,6 +38,14 @@ class Comment(BaseModel):
     created_at: str
 
 
+class ToolLogEntry(BaseModel):
+    timestamp: str
+    tool_name: str
+    status: str
+    args: dict[str, Any] = Field(default_factory=dict)
+    result: str = ""
+
+
 class WorkItem(BaseModel):
     id: str
     title: str
@@ -46,6 +54,15 @@ class WorkItem(BaseModel):
     type: WorkItemType
     assignees: List[str]
     comments: List[Comment]
+    created_at: str = ""
+    updated_at: str = ""
+    commit_hashes: List[str] = Field(default_factory=list)
+    tool_logs: List[ToolLogEntry] = Field(default_factory=list)
+    shared_context: str = ""
+    target_branch: str = ""
+    feature_branch: str = ""
+    base_commit: str = ""
+    merge_request_id: str = ""
     
     # Gate Statuses (Abstracted from custom fields)
     gate_analysis_status: GateStatus = GateStatus.PENDING
@@ -104,6 +121,40 @@ class WorkItemStore(ABC):
     @abstractmethod
     def add_artifact_link(self, work_item_id: str, title: str, url: str, comment: str = None) -> None:
         """Add a link to an external artifact (file, doc, etc) and optionally post a comment."""
+        pass
+
+    @abstractmethod
+    def add_commit_hash(self, work_item_id: str, commit_hash: str) -> None:
+        """Record a git commit hash that is relevant to this work item."""
+        pass
+
+    @abstractmethod
+    def append_shared_context(self, work_item_id: str, author: str, context: str) -> None:
+        """Append shared context for later agents working on this work item."""
+        pass
+
+    @abstractmethod
+    def add_tool_log(
+        self,
+        work_item_id: str,
+        tool_name: str,
+        status: str,
+        args: dict[str, Any],
+        result: str = "",
+    ) -> None:
+        """Append an automatic tool execution log entry to this work item."""
+        pass
+
+    @abstractmethod
+    def update_git_metadata(
+        self,
+        work_item_id: str,
+        target_branch: str | None = None,
+        feature_branch: str | None = None,
+        base_commit: str | None = None,
+        merge_request_id: str | None = None,
+    ) -> None:
+        """Update git and merge-request metadata for this work item."""
         pass
 
     @abstractmethod

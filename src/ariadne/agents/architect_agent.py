@@ -13,7 +13,7 @@ class ArchitectAgent(BaseAgent):
     """
 
     def __init__(self, ticket_tools=None, file_tools=None, git_tools=None):
-        super().__init__("ARCHITECT_AGENT_API_KEY")
+        super().__init__()
 
         try:
             self.ticket_tools = ticket_tools or DependencyRegistry.get_work_item_tools()
@@ -34,6 +34,8 @@ class ArchitectAgent(BaseAgent):
             self.update_ticket,
             self.add_comment,
             self.add_link,
+            self.ticket_tools.add_commit_hash,
+            self.ticket_tools.update_git_metadata,
             self.ticket_tools.approve_gate,
             self.ticket_tools.reject_gate,
             self.file_tools.read_file,

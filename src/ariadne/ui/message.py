@@ -52,6 +52,9 @@ class BotResponse:
     # Final response content
     response: str | None = None
 
+    # Token usage reported by the model provider for this run
+    token_usage: dict[str, int] | None = None
+
     # Current state
     state: ResponseState = ResponseState.IDLE
 
@@ -124,6 +127,12 @@ class BotResponse:
         if content is not None:
             self.response = content
         self.state = ResponseState.SUCCESS
+        self._notify_update()
+        return self
+
+    def set_token_usage(self, usage: dict[str, int] | None) -> "BotResponse":
+        """Set model token usage for this response."""
+        self.token_usage = usage
         self._notify_update()
         return self
 

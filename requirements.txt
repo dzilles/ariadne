@@ -7,6 +7,7 @@ mkdocs
 mkdocs-material
 mkdocstrings[python]
 docker
+keyring
 
 langchain
 langchain-core>=0.1.0

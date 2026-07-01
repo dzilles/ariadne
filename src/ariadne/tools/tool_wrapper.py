@@ -6,6 +6,10 @@ import asyncio
 import queue
 from typing import Callable, Any, Optional
 
+from src.ariadne.config.settings import settings
+from src.ariadne.runtime.context import get_active_work_item_id
+from src.ariadne.runtime.run_manager import is_cancel_requested
+
 logger = logging.getLogger(__name__)
 
 # Global approval state
@@ -51,6 +55,67 @@ def _notify_tool(tool_name: str, status: str, args: dict, result: str = "") -> N
             logger.debug(f"Tool notify error: {e}")
 
 
+def _serialize_tool_args(args: tuple, kwargs: dict) -> dict:
+    if kwargs:
+        raw_args = kwargs
+    else:
+        raw_args = {"args": list(args)}
+
+    serialized = {}
+    for key, value in raw_args.items():
+        try:
+            json_value = _json_safe(value)
+        except Exception:
+            json_value = repr(value)
+        serialized[str(key)] = json_value
+    return serialized
+
+
+def _json_safe(value: Any) -> Any:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    return repr(value)
+
+
+def _is_tool_audited(tool_name: str, status: str) -> bool:
+    if not settings.tool_audit_enabled:
+        return False
+
+    configured_tools = set(settings.tool_audit_logged_tools)
+    if "*" not in configured_tools and tool_name not in configured_tools:
+        return False
+
+    configured_statuses = set(settings.tool_audit_logged_statuses)
+    return "*" in configured_statuses or status in configured_statuses
+
+
+def _audit_tool_call(tool_name: str, status: str, args: dict, result: str = "") -> None:
+    if not _is_tool_audited(tool_name, status):
+        return
+
+    work_item_id = get_active_work_item_id()
+    if not work_item_id:
+        return
+
+    try:
+        from src.ariadne.infrastructure.container import DependencyRegistry
+
+        max_chars = max(0, settings.tool_audit_result_max_chars)
+        DependencyRegistry.get_sqlite_work_item_store().add_tool_log(
+            work_item_id=work_item_id,
+            tool_name=tool_name,
+            status=status,
+            args=args,
+            result=str(result)[:max_chars],
+        )
+    except Exception as e:
+        logger.debug("Tool audit logging failed for %s: %s", tool_name, e)
+
+
 def enable_approval(enabled: bool = True) -> None:
     """Enable or disable tool approval prompts."""
     global _approval_enabled, _auto_approve_session
@@ -70,11 +135,15 @@ def reset_session_approval() -> None:
     _auto_approve_session = False
 
 
-def _request_approval_sync(tool_name: str, args: dict) -> bool:
+def _request_approval_sync(
+    tool_name: str,
+    args: dict,
+    ignore_session_approval: bool = False,
+) -> bool:
     """Request approval synchronously using a thread-safe queue mechanism."""
     global _auto_approve_session
 
-    if not _approval_enabled or _auto_approve_session:
+    if not _approval_enabled or (_auto_approve_session and not ignore_session_approval):
         return True
 
     if not _approval_callback:
@@ -121,30 +190,56 @@ def with_error_handling(func: Callable) -> Callable:
     @functools.wraps(func)
     def wrapper(*args, **kwargs) -> Any:
         tool_name = func.__name__
+        tool_args = _serialize_tool_args(args, kwargs)
+
+        if is_cancel_requested():
+            result = f"[Tool Cancelled: {tool_name}] Run cancellation requested by user."
+            _notify_tool(tool_name, "error", kwargs, result)
+            _audit_tool_call(tool_name, "cancelled", tool_args, result)
+            return result
+
+        approval_required = (
+            _approval_callback
+            and _approval_enabled
+            and (not _auto_approve_session or tool_name == "delegate_to_agent")
+        )
 
         # Check if approval is needed
-        if _approval_callback and _approval_enabled and not _auto_approve_session:
-            if not _request_approval_sync(tool_name, kwargs):
+        if approval_required:
+            if not _request_approval_sync(
+                tool_name,
+                kwargs,
+                ignore_session_approval=(tool_name == "delegate_to_agent"),
+            ):
                 result = f"[Tool Cancelled: {tool_name}] User rejected the operation."
                 _notify_tool(tool_name, "error", kwargs, result)
+                _audit_tool_call(tool_name, "cancelled", tool_args, result)
                 return result
 
         # Notify tool start
         _notify_tool(tool_name, "start", kwargs, "")
 
         try:
+            if is_cancel_requested():
+                result = f"[Tool Cancelled: {tool_name}] Run cancellation requested by user."
+                _notify_tool(tool_name, "error", kwargs, result)
+                _audit_tool_call(tool_name, "cancelled", tool_args, result)
+                return result
             result = func(*args, **kwargs)
             # Check if result indicates an error
             result_str = str(result)
             if result_str.startswith("[Tool Error:"):
                 _notify_tool(tool_name, "error", kwargs, result_str)
+                _audit_tool_call(tool_name, "error", tool_args, result_str)
             else:
                 _notify_tool(tool_name, "success", kwargs, result_str)
+                _audit_tool_call(tool_name, "success", tool_args, result_str)
             return result
         except Exception as e:
             error_msg = f"[Tool Error: {tool_name}] {type(e).__name__}: {str(e)}"
             logger.error(error_msg)
             _notify_tool(tool_name, "error", kwargs, error_msg)
+            _audit_tool_call(tool_name, "error", tool_args, error_msg)
             return error_msg
 
     # Ensure all metadata is preserved for LangChain tool conversion

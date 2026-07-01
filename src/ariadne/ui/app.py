@@ -12,7 +12,8 @@ from textual.binding import Binding
 
 from .message import Conversation, BotResponse
 from .commands import CommandRegistry, create_default_commands
-from .widgets import ChatInput, ConversationView, ApprovalDialog
+from .widgets import ActiveWorkItemHeader, ChatInput, ConversationView, ApprovalDialog
+from src.ariadne.runtime import run_manager
 
 # Try to import Pydantic (optional dependency)
 try:
@@ -73,6 +74,13 @@ class ChatUI(App):
         self._agents: list[Agent] = agents or []
         self._active_agent: Agent | None = self._agents[0] if self._agents else None
         self._on_agent_change: Callable[[Agent | None], None] | None = None
+
+        # Active work item display
+        self._active_work_item_id: str | None = None
+        self._active_work_item_title: str | None = None
+        self._active_work_item_status: str | None = None
+        self._active_work_item_input_tokens: int = 0
+        self._active_work_item_output_tokens: int = 0
 
         # Settings management (Pydantic model)
         self._settings = settings
@@ -391,6 +399,50 @@ class ChatUI(App):
         self._on_agent_change = callback
         return callback
 
+    def set_active_work_item_info(
+        self,
+        work_item_id: str | None,
+        title: str | None,
+        status: str | None,
+    ) -> None:
+        """Update the active work item shown in the top bar."""
+        if work_item_id != self._active_work_item_id:
+            self._active_work_item_input_tokens = 0
+            self._active_work_item_output_tokens = 0
+        self._active_work_item_id = work_item_id
+        self._active_work_item_title = title
+        self._active_work_item_status = status
+        try:
+            header = self.query_one(ActiveWorkItemHeader)
+            header.set_work_item(
+                work_item_id,
+                title,
+                status,
+                self._active_work_item_input_tokens,
+                self._active_work_item_output_tokens,
+            )
+        except Exception:
+            pass  # Header may not be mounted yet
+
+    def add_active_work_item_token_usage(self, usage: dict[str, int] | None) -> None:
+        """Add token usage to the active work item top bar."""
+        if not usage or not self._active_work_item_id:
+            return
+
+        self._active_work_item_input_tokens += int(usage.get("input_tokens", 0) or 0)
+        self._active_work_item_output_tokens += int(usage.get("output_tokens", 0) or 0)
+        try:
+            header = self.query_one(ActiveWorkItemHeader)
+            header.set_work_item(
+                self._active_work_item_id,
+                self._active_work_item_title,
+                self._active_work_item_status,
+                self._active_work_item_input_tokens,
+                self._active_work_item_output_tokens,
+            )
+        except Exception:
+            pass  # Header may not be mounted yet
+
     async def _cmd_clear(self) -> None:
         """Clear the conversation."""
         self.conversation.clear()
@@ -405,6 +457,13 @@ class ChatUI(App):
 
         if not self._agents:
             response.complete("No agents configured.")
+            return
+
+        if name and self._current_task and not self._current_task.done():
+            response.info(
+                "An agent run is active. Press `Escape` to request cancellation, "
+                "or wait for it to finish before switching agents."
+            )
             return
 
         if not name:
@@ -460,6 +519,8 @@ class ChatUI(App):
                 entry = {"role": "assistant"}
                 if msg.response:
                     entry["response"] = msg.response
+                if msg.token_usage:
+                    entry["token_usage"] = msg.token_usage
                 if msg.errors:
                     entry["errors"] = [
                         {"label": e.label, "detail": e.detail}
@@ -491,6 +552,8 @@ class ChatUI(App):
                             response.add_error(err["label"], err.get("detail", ""))
                     if "response" in msg:
                         response.complete(msg["response"])
+                    if "token_usage" in msg:
+                        response.set_token_usage(msg["token_usage"])
 
             info = self.conversation.add_bot_response()
             info.complete(f"Conversation imported from `{filename}`")
@@ -518,6 +581,13 @@ class ChatUI(App):
 
     def compose(self) -> ComposeResult:
         """Compose the UI."""
+        yield ActiveWorkItemHeader(
+            self._active_work_item_id,
+            self._active_work_item_title,
+            self._active_work_item_status,
+            self._active_work_item_input_tokens,
+            self._active_work_item_output_tokens,
+        )
         yield ConversationView(self.conversation, settings=self._settings)
         yield ApprovalDialog()
         yield ChatInput(self.commands.all())
@@ -574,14 +644,26 @@ class ChatUI(App):
             pass
 
         if self._current_task and not self._current_task.done():
-            self._current_task.cancel()
+            run_manager.request_cancel()
             if self._current_response:
                 self._current_response.cancel()
 
     async def on_chat_input_submitted(self, event: ChatInput.Submitted) -> None:
         """Handle message submission."""
-        # Abort any current operation
-        self.action_abort()
+        if self._current_task and not self._current_task.done():
+            active_run = run_manager.get_active_run()
+            self.conversation.add_user_message(event.value)
+            response = self.conversation.add_bot_response()
+            if active_run:
+                response.info(
+                    "A run is already active. Press `Escape` to request cancellation, "
+                    "then wait for the current tool or model step to stop before sending a new message."
+                )
+            else:
+                response.info(
+                    "A run is still finishing. Wait for it to complete before sending a new message."
+                )
+            return
 
         self.conversation.add_user_message(event.value)
         response = self.conversation.add_bot_response()

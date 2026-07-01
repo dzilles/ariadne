@@ -13,7 +13,7 @@ class QMAgent(BaseAgent):
     """
 
     def __init__(self, ticket_tools=None, file_tools=None):
-        super().__init__("QM_AGENT_API_KEY")
+        super().__init__()
 
         try:
             self.ticket_tools = ticket_tools or DependencyRegistry.get_work_item_tools()

@@ -1,0 +1,54 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ariadne-lifecycle"
+version = "0.1.0"
+description = "Autonomous software lifecycle engine implementing a V-Model workflow."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Proprietary" }
+authors = [
+    { name = "Ariadne Contributors" }
+]
+dependencies = [
+    "anthropic>=0.18.0",
+    "docker",
+    "gitpython",
+    "keyring",
+    "langchain",
+    "langchain-core>=0.1.0",
+    "langchain-google-genai",
+    "langchain-ollama",
+    "langgraph>=0.0.30",
+    "mkdocs",
+    "mkdocs-material",
+    "mkdocstrings[python]",
+    "openai>=1.0.0",
+    "prompt_toolkit",
+    "pydantic>=2.0.0",
+    "pydantic-settings>=2.0.0",
+    "python-dotenv",
+    "requests",
+    "rich>=13.0.0",
+    "textual>=0.50.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-bdd",
+]
+
+[project.scripts]
+ariadne = "ariadne:main"
+
+[tool.setuptools]
+py-modules = ["ariadne"]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+namespaces = true

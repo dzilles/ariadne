@@ -1,0 +1,41 @@
+# Maintainer: Ariadne Contributors
+pkgname=ariadne-lifecycle
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Autonomous software lifecycle engine implementing a V-Model workflow"
+arch=('any')
+url="https://github.com/your-org/ariadne"
+license=('custom')
+depends=(
+  'python'
+  'python-pip'
+)
+makedepends=(
+  'git'
+  'python-build'
+  'python-wheel'
+)
+optdepends=(
+  'docker: sandbox execution support'
+)
+source=("${pkgname}::git+file://${startdir}/../..")
+sha256sums=('SKIP')
+
+build() {
+  cd "${srcdir}/${pkgname}"
+  python -m build --wheel --no-isolation
+}
+
+package() {
+  cd "${srcdir}/${pkgname}"
+  local optdir="${pkgdir}/opt/${pkgname}"
+
+  python -m venv "${optdir}"
+  "${optdir}/bin/python" -m pip install --upgrade pip
+  "${optdir}/bin/python" -m pip install dist/*.whl
+
+  install -Dm755 /dev/stdin "${pkgdir}/usr/bin/ariadne" <<EOF
+#!/bin/sh
+exec /opt/${pkgname}/bin/ariadne "\$@"
+EOF
+}

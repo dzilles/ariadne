@@ -1,72 +1,78 @@
 # Ariadne V-Model Architecture Blueprint
 
-This document outlines the planned architecture for the Ariadne autonomous software lifecycle engine, detailing how agents interact, how the V-Model is mapped to the issue tracker (Plane), and how autonomy is achieved.
+This document outlines the architecture for the Ariadne autonomous software lifecycle engine, detailing how agents interact, how the V-Model is mapped to the local ticket system (SQLite), and how traceability is maintained across the lifecycle.
 
-## 1. The V-Model Definition (in Plane)
-The V-Model is physically represented by the Ticket Hierarchy in Plane.
+## 1. The V-Model Definition (in SQLite)
+The V-Model is physically represented by the Ticket Hierarchy in the local database.
 
-*   **The Epic:** The Product Owner creates a parent issue (e.g., `ISSUE-100: User Authentication`).
-*   **The V-Model Sub-Tasks:** The PO (or Orchestrator) generates child tickets for the sequential phases:
-    1.  `ISSUE-101`: `[REQ] Define Auth Specs` (Requirement Gathering)
-    2.  `ISSUE-102`: `[ARCH] Design Auth System` (System/Module Design)
-    3.  `ISSUE-103`: `[DEV] Implement Auth Logic` (Coding)
-    4.  `ISSUE-104`: `[TEST] Write Auth Tests` (Validation)
-    5.  `ISSUE-105`: `[QA] Review Auth Code` (Verification)
+*   **The Epic:** The Orchestrator creates a parent issue representing a feature (e.g., `TUI & Human-in-the-loop`).
+*   **The V-Model Sub-Tasks:** The Orchestrator generates child tickets for the sequential phases:
+    1.  `[REQ] Requirement Analysis` (Requirement Gathering)
+    2.  `[ARCH] System Architecture` (System/Module Design)
+    3.  `[DEV] Implementation` (Coding)
+    4.  `[TEST] Testing` (Validation)
+    5.  `[QA] Quality Assurance` (Verification)
 
 ## 2. Gate Enforcement (JIT Validation)
-Gates are enforced using Plane's native **Issue Relations** (`blocked_by`) combined with **Just-In-Time (JIT) Python decorators**.
+Gates are enforced using **Ticket Relations** combined with **Just-In-Time (JIT) Python decorators**.
 
-*   **The Graph:** `ISSUE-102` is `blocked_by` `ISSUE-101`. `ISSUE-103` is `blocked_by` `ISSUE-102`.
-*   **Unrestricted Reads:** Agents can use read tools (`read_file`, `get_ticket_details`) freely to gather context.
-*   **Guarded Writes (Hidden Context):** Write tools (`write_file`, `commit_changes`) are protected by a Python `@jit_vmodel_guard` decorator. To prevent LLM hallucination, agents do *not* pass the `ticket_id` to the tools. Instead, the Orchestrator injects the active `ticket_id` into a secure Python backend context during delegation. The guard checks Plane to ensure the active ticket has no unresolved blockers before allowing the file write.
+*   **The Graph:** Sub-tasks are linked in sequence (ARCH blocked by REQ, DEV blocked by ARCH, etc.).
+*   **Guarded Writes:** Write tools (`write_file`, `commit_changes`) are protected by a `@jit_vmodel_guard` decorator. 
+*   **Rule Engine:** The guard queries the database for the ticket's status. If the status does not match the allowed phase for that tool (defined in `src/workflows/rules.py`), the action is blocked. 
+*   **State Robustness:** The guard must handle `None` states (sync lag) by defaulting to `Backlog` and must enrich simplified API data with full `state_detail` information.
 
 ## 3. Autonomous Loop & Escalation (The Orchestrator)
 Ariadne operates as an autonomous factory line, driven by the Orchestrator Agent.
 
-*   **Delegation:** The Orchestrator does not write code. It reads the Epic status and uses a `delegate_to_agent(agent, task)` tool to dispatch the current sub-task to the correct specialized agent.
-*   **Standardized Returns:** Agents complete their work and return standardized codes:
-    *   `[SUCCESS] Task complete.`
-    *   `[ESCALATION] I am blocked because...`
-*   **Escalation Protocol:** If an agent hits a JIT block or a missing dependency, it returns an `[ESCALATION]` string. The Orchestrator parses this and re-routes the task (e.g., sending it back to the Architect to fix the missing spec) before asking the Developer to resume.
+*   **Delegation:** The Orchestrator uses a `delegate_to_agent(agent, task)` tool.
+*   **Standardized Returns:** Agents must return `[SUCCESS]` upon completion or `[ESCALATION]` if blocked.
+*   **Orchestrator Responsibility:** The Orchestrator manages the transition between tickets. It is responsible for moving sub-tasks through their lifecycle and unblocking agents if they hit system limits.
 
 ## 4. Agent Responsibilities
-*   **Product Owner (PO):** Interacts with user to create the Parent Epic and the V-Model Sub-tasks. Sets up `blocked_by` relations.
-*   **Requirements Agent:** Writes `REQ-*.md` files on an isolated branch.
-*   **Architect Agent:** Reads `REQ` files, writes `ARCH-*.md` files (utilizing Mermaid.js) on an isolated branch.
-*   **Developer Agent:** Reads specs, writes Python implementation on a `feat/` branch. Uses conventional commits.
-*   **Tester Agent:** Reads specs and source code. Writes and runs `pytest` automated tests on a `test/` branch. Strictly prevented from modifying source code.
-*   **QA Agent:** The AI Audit Gate. Reviews the merged branches for standards (PEP8), security, and logic.
-*   **Orchestrator Agent:** The Scrum Master and Release Manager. Tracks velocity, delegates tasks, manages Git merges between agent branches, and resolves escalations.
+*   **Orchestrator Agent:** Backlog management, Epic/Sub-task creation, Stable ID assignment, workflow coordination, and escalation handling.
+*   **Requirements Agent:** Generates formal specifications using the REQ template.
+*   **Architect Agent:** Designs system components and integration points using the ARCH template.
+*   **Developer Agent:** Implements code in `feat/` branches and applies **Traceability Tags**.
+*   **Tester Agent:** Writes and executes `pytest` suites in `test/` branches.
+*   **QA Agent:** Final audit gate, applying database tags and verifying documentation alignment.
 
-## 5. Traceability & Documentation
-*   **Traceability:** The Parent Epic ID (`ISSUE-100`) is the ultimate link.
-    *   Requirements: `docs/requirements/REQ-100.md`
-    *   Architecture: `docs/design/ARCH-100.md`
-    *   Code: Branch `feat/ISSUE-100`
-    *   Docstrings: `"""Fulfills REQ-100"""`
-*   **Plane Audit Trail:** Agents leave HTML-formatted comments when completing tasks, containing links to the generated markdown artifacts or git commit hashes.
+## 5. Traceability & Documentation (Stable IDs)
+To prevent documentation from becoming obsolete when tickets are closed, Ariadne uses **Stable Component IDs**.
 
-## 6. Execution Details & Edge Cases
+*   **Functional Naming:** Artifacts are named after the component or requirement ID, NOT the ticket ID.
+    *   Requirement: `docs/requirements/REQ-001.md`
+    *   Design: `docs/design/ARCH-001.md`
+*   **ID Registry:** A global mapping (conceptually) links Stable IDs to features.
+*   **Code Tagging:** Developers MUST include a traceability tag in the header of functions or classes:
+    ```python
+    def some_function():
+        """
+        Implementation of ARCH-001.
+        Fulfills REQ-001.
+        """
+    ```
 
-### 6.1 The Dual-Gate System (Review Flags)
-Gate approval and rejections are tracked via strict Plane Labels rather than just state changes.
-*   **Review Passed: QA:** Added by the QA Agent when the code/tests pass inspection.
-*   **Review Passed: Human:** Added by the Human Operator after the QA Agent approves.
-*   **Review Failed: Findings:** Added by either QA or the Human. This explicitly signals to the Orchestrator that the artifact was rejected. The Orchestrator will then re-open the appropriate `[DEV]`, `[TEST]`, or `[ARCH]` ticket and route it back to the agent to fix the findings detailed in the comments.
+### 5.1 Inter-Artifact Linking (The Dependency Web)
+Artifacts must be explicitly linked to support impact analysis:
+*   **Requirements Linking:** REQ files must list `Refines: REQ-XXX` (if it's a sub-requirement) or `Depends on: REQ-YYY`.
+*   **Architecture Refinement:** Every `ARCH-XXX` must contain a `Traces to: REQ-XXX` section, mapping architectural components to specific functional requirements.
+*   **Interface Dependencies:** ARCH files must list `Interfaces with: ARCH-ZZZ` to document component cross-dependencies.
+*   **Mermaid Visualization:** High-level designs should use Mermaid.js `requirementDiagram` or `classDiagram` to visualize these links within the `.md` files.
 
-### 6.2 Isolated Git Workflow (Branch Segregation)
-To prevent agents from stepping on each other's toes, Git is used to enforce strict boundaries:
-1.  **Epic Branch:** The Orchestrator creates a central integration branch for the Epic (e.g., `epic/ISSUE-100`).
-2.  **Agent Branches:** Each agent checks out a sub-branch:
-    *   Requirements/Architect: `docs/ISSUE-100`
-    *   Developer: `feat/ISSUE-100`
-3.  **Tester Branch Sequence:** The Developer finishes `feat/`, and the Orchestrator merges it into `epic/`. The Tester Agent MUST then branch off `epic/ISSUE-100` (creating `test/ISSUE-100`) so it has access to the newly written code to test it.
-4.  **Merge Conflicts (Human Intervention):** The Orchestrator acts as the Release Manager. If it attempts to merge an agent's branch into the `epic/` branch and encounters a Git merge conflict, it will immediately abort the operation and pause the autonomous loop. It will alert the human user via the TUI to resolve the conflict manually before continuing.
+## 6. Execution Details
 
-### 6.3 Documenting QA Findings
-*   **Minor Issues:** QA leaves inline comments on the specific Plane sub-task ticket, applying the `Review Failed: Findings` label.
-*   **Major/Architectural Flaws:** If QA finds systemic issues, it generates a formal markdown report (e.g., `docs/qa/QA-REPORT-100.md`), commits it to the Epic branch, and links it in the ticket before rejecting it.
+### 6.1 Isolated Git Workflow
+1.  **Epic Branch:** `epic/FEATURE-NAME`
+2.  **Agent Branches:** `docs/REQ-001`, `feat/FEAT-001`, `test/FEAT-001`.
+3.  **Merging:** The Orchestrator performs merges into the Epic branch only after successful phase completion.
 
-### 6.4 Environment & Dependencies (The Playground)
-*   **Developer Agent (Playground Access):** The Developer is permitted to modify dependency files (e.g., `requirements.txt`) and run installation commands via the shell tool to build their code.
-*   **Tester & QA Agents (Restricted):** The Tester and QA agents must run their checks within the environment defined by the Developer. If a test fails because a dependency is missing, they reject the ticket with `Review Failed: Findings` and route it back to the Developer.
+### 6.2 Human-in-the-loop (HITL)
+*   **Interception:** The `tool_wrapper` intercepts sensitive tool calls.
+*   **Approval UI:** A TUI-based `ApprovalDialog` allows the user to `Approve`, `Deny`, or `Allow Session`.
+*   **Async Bridge:** A thread-safe queue synchronizes background agent threads with the UI event loop.
+
+## 7. Operational Efficiency
+To minimize token waste and prevent agent recursion:
+*   **Surgical Delegation:** The Orchestrator provides a **Reference Manifest** (specific files to read) and a **Knowledge Summary** (context already known).
+*   **Search-First Protocol:** Agents use `search_file_content` before `read_file`.
+*   **Template-First:** Standard templates for REQ and ARCH are embedded in agent system prompts to avoid unnecessary "style" lookups.

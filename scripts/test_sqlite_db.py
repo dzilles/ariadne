@@ -8,6 +8,7 @@ sys.path.append(os.getcwd())
 from src.ariadne.infrastructure.container import DependencyRegistry
 from src.ariadne.work_items.models import TicketType, TicketStatus, GateStatus
 from src.ariadne.workflows.context import set_active_ticket_id
+from src.ariadne.tools.tool_wrapper import with_error_handling
 
 def test_sqlite_system():
     print("🧪 Testing SQLite Ticket System...")
@@ -46,9 +47,41 @@ def test_sqlite_system():
     print("\n4. Approving analysis gate...")
     res = tools.approve_gate(t_id, "analysis")
     print(res)
+
+    # 5. Add relevant commit and shared context
+    print("\n5. Adding commit hash and shared context...")
+    res = tools.add_commit_hash(t_id, "abc123")
+    print(res)
+    res = tools.update_git_metadata(
+        t_id,
+        target_branch="main",
+        feature_branch="feature/test-sqlite-ticket",
+        base_commit="base123",
+        merge_request_id="MR-1",
+    )
+    print(res)
+    res = tools.append_shared_context(t_id, "Tester", "The requirement has enough detail for architecture.")
+    print(res)
+
+    # 6. Verify configured automatic tool logging via wrapper
+    print("\n6. Verifying automatic tool logging...")
+    logged_update_status = with_error_handling(tools.update_status)
+    res = logged_update_status(work_item_id=t_id, status=TicketStatus.READY_FOR_ANALYSIS.value)
+    print(res)
     
-    # 5. Get ticket details
-    print("\n5. Fetching ticket details...")
+    # 7. Get ticket details
+    print("\n7. Fetching ticket details...")
+    item = tools.system.get_work_item(t_id)
+    assert item.created_at
+    assert item.updated_at
+    assert item.commit_hashes == ["abc123"]
+    assert item.target_branch == "main"
+    assert item.feature_branch == "feature/test-sqlite-ticket"
+    assert item.base_commit == "base123"
+    assert item.merge_request_id == "MR-1"
+    assert "Tester" in item.shared_context
+    assert "enough detail" in item.shared_context
+    assert any(log.tool_name == "update_status" for log in item.tool_logs)
     ticket_details = tools.get_work_item(t_id)
     print(ticket_details)
 

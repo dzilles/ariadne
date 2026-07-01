@@ -20,6 +20,74 @@ from .message import (
 from .commands import Command
 
 
+class ActiveWorkItemHeader(Static):
+    """Top bar showing the active work item."""
+
+    DEFAULT_CSS = """
+    ActiveWorkItemHeader {
+        width: 100%;
+        height: 1;
+        padding: 0 2;
+        background: $surface;
+        color: $text-muted;
+        text-overflow: ellipsis;
+    }
+    """
+
+    def __init__(
+        self,
+        work_item_id: str | None = None,
+        title: str | None = None,
+        status: str | None = None,
+        input_tokens: int = 0,
+        output_tokens: int = 0,
+        **kwargs,
+    ) -> None:
+        super().__init__(**kwargs)
+        self.work_item_id = work_item_id
+        self.title = title
+        self.status = status
+        self.input_tokens = input_tokens
+        self.output_tokens = output_tokens
+
+    def set_work_item(
+        self,
+        work_item_id: str | None,
+        title: str | None,
+        status: str | None,
+        input_tokens: int = 0,
+        output_tokens: int = 0,
+    ) -> None:
+        """Update the displayed work item."""
+        self.work_item_id = work_item_id
+        self.title = title
+        self.status = status
+        self.input_tokens = input_tokens
+        self.output_tokens = output_tokens
+        self.update(self.render())
+
+    def render(self) -> Text:
+        """Render active work item details."""
+        text = Text()
+        text.append("Active work item: ", style="bold")
+        if not self.work_item_id:
+            text.append("None", style="dim")
+            return text
+
+        text.append(f"#{self.work_item_id}", style="bold cyan")
+        if self.title:
+            text.append("  ")
+            text.append(self.title, style="white")
+        if self.status:
+            text.append("  ")
+            text.append(self.status, style="bold green")
+        text.append("  ")
+        text.append(f"Input tokens: {self.input_tokens}", style="dim")
+        text.append("  ")
+        text.append(f"Output tokens: {self.output_tokens}", style="dim")
+        return text
+
+
 class LinedContent:
     """A Rich renderable that shows content with a continuous vertical line.
 
@@ -225,6 +293,20 @@ class BotResponseWidget(Static):
                 else:
                     yield Static("└  ", classes="indicator")
                 yield Static(Markdown(self.response.response), classes="content")
+
+        if self.response.token_usage:
+            usage = self.response.token_usage
+            parts = []
+            if "input_tokens" in usage:
+                parts.append(f"in {usage['input_tokens']}")
+            if "output_tokens" in usage:
+                parts.append(f"out {usage['output_tokens']}")
+            if "total_tokens" in usage:
+                parts.append(f"total {usage['total_tokens']}")
+            if parts:
+                with Container(classes="response-row"):
+                    yield Static("   ", classes="indicator")
+                    yield Static(Text("Tokens: " + " | ".join(parts), style="dim"), classes="content")
 
 
 class UserMessageWidget(Static):

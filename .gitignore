@@ -158,3 +158,6 @@ traceability.lock
 
 logs/.plane
 .plane/
+
+# Local work item database
+ariadne_tickets.db

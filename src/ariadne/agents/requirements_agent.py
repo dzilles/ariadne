@@ -14,7 +14,7 @@ class RequirementsAgent(BaseAgent):
     """
 
     def __init__(self, ticket_tools=None, file_tools=None, git_tools=None):
-        super().__init__("REQUIREMENTS_AGENT_API_KEY")
+        super().__init__()
 
         try:
             self.ticket_tools = ticket_tools or DependencyRegistry.get_work_item_tools()
@@ -32,6 +32,8 @@ class RequirementsAgent(BaseAgent):
             self.ticket_tools.approve_gate,
             self.ticket_tools.reject_gate,
             self.ticket_tools.add_link,
+            self.ticket_tools.add_commit_hash,
+            self.ticket_tools.update_git_metadata,
             self.file_tools.read_file,
             self.file_tools.list_files,
             self.file_tools.write_file,
@@ -54,7 +56,6 @@ class RequirementsAgent(BaseAgent):
         self._init_executor(self.tools, self._get_system_message())
 
     def _get_system_message(self) -> str:
-        # Replaces 'Plane' with 'the project management system' while keeping logic the same
         return f"""You are the Requirements Agent. Your goal is to generate formal requirement specifications.
 
 ### REQUIREMENTS VS DESIGN BOUNDARY (CRITICAL):
@@ -77,4 +78,3 @@ class RequirementsAgent(BaseAgent):
 ### Available Tools:
 {self.tool_docs}
 """
-

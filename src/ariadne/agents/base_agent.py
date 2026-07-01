@@ -5,7 +5,10 @@ from langchain_core.messages import messages_to_dict, messages_from_dict, HumanM
 from langgraph.prebuilt import create_react_agent
 
 from src.ariadne.llm.factory import get_llm
-from src.ariadne.config.vault import Vault
+from src.ariadne.runtime.token_usage import (
+    extract_token_usage,
+    notify_active_work_item_token_usage,
+)
 
 # Setup logging
 logger = logging.getLogger(__name__)
@@ -16,14 +19,8 @@ class BaseAgent:
     Provides standard LLM initialization, history management, and chat loop execution.
     """
 
-    def __init__(self, role_key: str):
+    def __init__(self):
         self.llm = get_llm()
-
-        # Load Agent-Specific API Key from Vault, with fallback
-        self.api_key = Vault.get_secret(role_key)
-        if not self.api_key:
-            # Fallback to general LLM_API_KEY
-            self.api_key = Vault.get_secret("LLM_API_KEY")
 
         self.chat_history = []
         self.agent_executor = None  # To be initialized by subclasses
@@ -71,6 +68,7 @@ class BaseAgent:
         logger.info(f"User Input: {user_input}")
         
         # Add user message to history
+        start_index = len(self.chat_history)
         self.chat_history.append(HumanMessage(content=user_input))
         
         if not self.agent_executor:
@@ -89,6 +87,8 @@ class BaseAgent:
         
         # Update history
         self.chat_history = result["messages"]
+        usage = extract_token_usage(self.chat_history[start_index:])
+        notify_active_work_item_token_usage(usage)
         
         # Get last message
         last_msg = self.chat_history[-1]

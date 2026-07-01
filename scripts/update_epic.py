@@ -13,7 +13,7 @@ def update():
     new_description = """### Epic: Multi-Agent Terminal User Interface (TUI) & Human-in-the-loop
 
 **As an** Ariadne system user (developer/product manager),
-**I want** a robust, terminal-based chat interface to interact with specialized lifecycle agents (Product Owner, Requirements, Engineer), manage configurations, and control agent actions,
+**I want** a robust, terminal-based chat interface to interact with specialized lifecycle agents (Orchestrator, Requirements, Engineer), manage configurations, and control agent actions,
 **So that** I can seamlessly guide the software development process, securely provide credentials, and safely approve system modifications directly from my terminal.
 
 #### **Acceptance Criteria**:

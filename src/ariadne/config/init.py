@@ -19,6 +19,21 @@ def init_config():
         "project_path": ".",
         "verbose": False,
         "tool_approval": True,
+        "tool_audit_enabled": True,
+        "tool_audit_logged_tools": [
+            "write_file",
+            "run_shell_command",
+            "commit_changes",
+            "update_status",
+            "approve_gate",
+            "reject_gate",
+            "add_link",
+            "add_commit_hash",
+            "update_git_metadata",
+            "delegate_to_agent"
+        ],
+        "tool_audit_logged_statuses": ["success", "error", "cancelled"],
+        "tool_audit_result_max_chars": 1000,
         "sandbox_mode": True
     }
 

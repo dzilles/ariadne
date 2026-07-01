@@ -45,12 +45,5 @@ class Vault:
         We return a list of known keys we manage.
         """
         return [
-            "LLM_API_KEY",
-            "PO_AGENT_API_KEY",
-            "REQUIREMENTS_AGENT_API_KEY",
-            "ARCHITECT_AGENT_API_KEY",
-            "DEVELOPER_AGENT_API_KEY",
-            "TESTER_AGENT_API_KEY",
-            "QA_AGENT_API_KEY",
-            "ORCHESTRATOR_AGENT_API_KEY"
+            "LLM_API_KEY"
         ]

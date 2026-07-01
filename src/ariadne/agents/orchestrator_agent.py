@@ -12,7 +12,7 @@ class OrchestratorAgent(BaseAgent):
     """
 
     def __init__(self, ticket_tools=None, file_tools=None):
-        super().__init__("ORCHESTRATOR_AGENT_API_KEY")
+        super().__init__()
 
         try:
             self.ticket_tools = ticket_tools or DependencyRegistry.get_work_item_tools()
@@ -27,16 +27,24 @@ class OrchestratorAgent(BaseAgent):
         self.add_comment = self.ticket_tools.post_comment
 
         self.tools = wrap_tools_with_error_handling([
+            self.ticket_tools.list_work_items,
             self.get_ticket_details,
+            self.ticket_tools.get_work_item_info,
+            self.ticket_tools.activate_work_item,
             self.update_work_item,
             self.add_comment,
+            self.ticket_tools.approve_gate,
+            self.ticket_tools.reject_gate,
+            self.ticket_tools.add_link,
+            self.ticket_tools.append_shared_context,
+            self.ticket_tools.update_git_metadata,
             self.file_tools.read_file,
             self.file_tools.list_files,
             self.delegate_to_agent
         ])
 
         self.tool_docs = "\n".join([
-            self.ticket_tools.get_tool_descriptions(),
+            self.ticket_tools.get_tool_descriptions(include_context_writer=True),
             self.file_tools.get_tool_descriptions(),
             "### Orchestration Tools",
             "* `delegate_to_agent(agent_name, work_item_id, task_description)`: Delegates a specific work item to a specialized agent."
@@ -84,14 +92,53 @@ class OrchestratorAgent(BaseAgent):
 
             # 2. Instantiate and chat with agent
             agent_instance = AGENT_CLASSES[agent_name]()
-            response = agent_instance.chat(f"Context: You are working on work item #{work_item_id}. Task: {task_description}")
+            response = agent_instance.chat(
+                self._build_delegation_prompt(agent_name, work_item_id, task_description)
+            )
+            self._append_agent_handoff_context(work_item_id, agent_name, response)
             return f"[{agent_name} Response]:\n{response}"
         except Exception as e:
             return f"Error delegating to {agent_name}: {str(e)}"
 
+    def _build_delegation_prompt(self, agent_name: str, work_item_id: str, task_description: str) -> str:
+        return f"""Context: You are working on work item #{work_item_id}.
+
+Task:
+{task_description}
+
+Before you finish, you MUST:
+1. Check the current work item with `get_work_item` so your answer reflects the latest status, shared context, artifacts, and comments.
+2. Complete the delegated task as far as your role allows.
+3. Return a final section named `Context update for Orchestrator` with concise handoff context: decisions made, files changed or inspected, relevant artifacts, relevant commit hashes, blockers, and assumptions.
+4. State whether your delegated task is finished.
+5. If the work is not finished, state exactly which next agent should be called and why.
+
+Do not call `append_shared_context`. Only the Orchestrator writes shared context after reviewing your response.
+"""
+
+    def _append_agent_handoff_context(self, work_item_id: str, agent_name: str, response: str) -> None:
+        context = (
+            f"Delegated agent: {agent_name}\n"
+            "The following response was returned after the agent was instructed to check "
+            "the work item and provide a context update for the Orchestrator.\n\n"
+            f"{response}"
+        )
+        result = self.ticket_tools.append_shared_context(work_item_id, agent_name, context)
+        logger.info("Shared context append result for work item #%s: %s", work_item_id, result)
+
     def _get_system_message(self) -> str:
-        return f"""You are the Orchestrator Agent, the 'Scrum Master' of the Ariadne V-Model.
-Your goal is to coordinate the development lifecycle with maximum efficiency and minimal token waste.
+        return f"""You are the Orchestrator Agent for the Ariadne V-Model.
+Your goal is to manage the backlog, translate user requests into structured work items, and coordinate the development lifecycle with maximum efficiency and minimal token waste.
+
+### Backlog Management
+1. Analyze user input. Answer questions directly or ask for clarification if a request is vague.
+2. When creating or updating work items, follow professional Agile standards.
+3. Always check work item comments for open points, questions, or pending feedback before marking work complete.
+4. For new features or bugs, structure descriptions with a user story, acceptance criteria, technical context, and traceability where applicable.
+5. When acting on existing work items, check the current state with `get_work_item` if IDs, status, comments, artifacts, or ownership are unclear.
+6. Use `list_work_items` to discover available work items.
+7. Use `activate_work_item` when the user wants to work with a work item in this conversation but has not asked you to delegate it to another agent.
+8. Always report the exact result of your actions to the user.
 
 ### SURGICAL DELEGATION PROTOCOL:
 When using `delegate_to_agent`, you MUST structure your `task_description` as follows:

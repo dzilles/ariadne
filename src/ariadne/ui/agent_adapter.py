@@ -11,9 +11,12 @@ from langchain_core.messages import HumanMessage, AIMessage
 
 from .message import BotResponse
 import src.ariadne.tools.tool_wrapper as tool_wrapper
+from src.ariadne.runtime import run_manager
+from src.ariadne.runtime.token_usage import (
+    extract_token_usage,
+    notify_active_work_item_token_usage,
+)
 
-# Import agent classes
-from src.ariadne.agents.po_agent import ProductOwnerAgent
 from src.ariadne.agents.requirements_agent import RequirementsAgent
 from src.ariadne.agents.architect_agent import ArchitectAgent
 from src.ariadne.agents.developer_agent import DeveloperAgent
@@ -24,26 +27,24 @@ from src.ariadne.agents.orchestrator_agent import OrchestratorAgent
 
 # Agent registry mapping names to classes
 AGENT_CLASSES = {
-    "Product Owner": ProductOwnerAgent,
+    "Orchestrator": OrchestratorAgent,
     "Requirements": RequirementsAgent,
     "QM": QMAgent,
     "Architect": ArchitectAgent,
     "Developer": DeveloperAgent,
     "Tester": TesterAgent,
     "QA": QualityAssuranceAgent,
-    "Orchestrator": OrchestratorAgent,
 }
 
 # Agent descriptions for UI display
 AGENT_DESCRIPTIONS = {
-    "Product Owner": "Manages backlog and translates requirements into tickets",
+    "Orchestrator": "Manages backlog and coordinates the overall workflow",
     "Requirements": "Refines tickets into detailed requirement documents",
     "QM": "Reviews requirement documents for completeness and clarity",
     "Architect": "Designs system architecture and technical specifications",
     "Developer": "Implements features and fixes bugs based on designs",
     "Tester": "Writes and executes automated tests",
     "QA": "Reviews code and validates adherence to quality standards",
-    "Orchestrator": "Coordinates the overall workflow and agent assignments",
 }
 
 # Patterns that indicate an error response from agents
@@ -80,11 +81,18 @@ async def handle_message(
         response: The BotResponse object to update with status and results
         agent: The agent instance with a chat() method
     """
+    agent_name = agent.__class__.__name__
+    run_state = run_manager.start_run(agent_name, message)
     # Check if agent has a LangGraph executor we can stream from
-    if hasattr(agent, "agent_executor") and hasattr(agent, "chat_history"):
-        await _handle_message_streaming(message, response, agent)
-    else:
-        await _handle_message_sync(message, response, agent)
+    try:
+        if hasattr(agent, "agent_executor") and hasattr(agent, "chat_history"):
+            await _handle_message_streaming(message, response, agent)
+        else:
+            await _handle_message_sync(message, response, agent)
+        run_manager.finish_run(run_state.id)
+    except Exception:
+        run_manager.fail_run(run_state.id)
+        raise
 
 
 async def _handle_message_streaming(
@@ -105,10 +113,11 @@ async def _handle_message_streaming(
 
     def run_agent_sync():
         """Run the agent synchronously in a thread."""
+        start_index = len(agent.chat_history)
         agent.chat_history.append(HumanMessage(content=message))
         inputs = {"messages": agent.chat_history}
         result = agent.agent_executor.invoke(inputs)
-        return result
+        return result, start_index
 
     try:
         # Run the agent in a thread pool executor
@@ -117,19 +126,22 @@ async def _handle_message_streaming(
         # Poll for completion or cancellation
         while not task.done():
             if response.is_cancelled:
-                # Can't actually stop the thread, but we stop waiting
-                return
+                run_manager.request_cancel()
             await asyncio.sleep(0.1)
 
         # Check if cancelled while getting result
         if response.is_cancelled:
+            run_manager.request_cancel()
             return
 
-        result = task.result()
+        result, start_index = task.result()
 
         # Update history from result
         if "messages" in result:
             agent.chat_history = result["messages"]
+            usage = extract_token_usage(agent.chat_history[start_index:])
+            response.set_token_usage(usage)
+            notify_active_work_item_token_usage(usage)
 
         # Extract final response
         if agent.chat_history:
@@ -175,20 +187,25 @@ async def _handle_message_sync(
 
     try:
         # Run the synchronous chat() method in a thread pool executor
+        start_index = len(getattr(agent, "chat_history", []))
         task = main_loop.run_in_executor(None, agent.chat, message)
 
         # Poll for completion or cancellation
         while not task.done():
             if response.is_cancelled:
-                # Can't actually stop the thread, but we stop waiting
-                return
+                run_manager.request_cancel()
             await asyncio.sleep(0.1)
 
         # Check if cancelled while getting result
         if response.is_cancelled:
+            run_manager.request_cancel()
             return
 
         result = task.result()
+        usage = extract_token_usage(getattr(agent, "chat_history", [])[start_index:])
+        response.set_token_usage(
+            usage
+        )
 
         # Check if the result is an error message from the agent
         if result:

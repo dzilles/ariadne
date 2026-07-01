@@ -22,9 +22,9 @@ WORKFLOW_RULES: List[WorkflowRule] = [
     # 1. Backlog Refinement
     WorkflowRule(
         current_state=WorkItemStatus.BACKLOG,
-        agent_name="Product Owner",
+        agent_name="Orchestrator",
         description="Review new request, clarify ambiguities, and prepare for analysis.",
-        allowed_actions=["update_description", "post_comment", "update_status"],
+        allowed_actions=["update_description", "post_comment", "append_shared_context", "update_status"],
         next_state=WorkItemStatus.READY_FOR_ANALYSIS
     ),
 
@@ -33,7 +33,7 @@ WORKFLOW_RULES: List[WorkflowRule] = [
         current_state=WorkItemStatus.READY_FOR_ANALYSIS,
         agent_name="Requirements",
         description="Analyze User Story and generate formal Requirement Specification.",
-        allowed_actions=["read_file", "write_file", "create_branch", "add_files", "commit_changes", "add_link", "update_status", "post_comment"],
+        allowed_actions=["read_file", "write_file", "create_branch", "add_files", "commit_changes", "add_commit_hash", "update_git_metadata", "add_link", "append_shared_context", "update_status", "post_comment"],
         required_artifact_pattern="docs/requirements/REQ-*.md",
         next_state=WorkItemStatus.READY_FOR_REVIEW
     ),
@@ -43,7 +43,7 @@ WORKFLOW_RULES: List[WorkflowRule] = [
         current_state=WorkItemStatus.READY_FOR_REVIEW,
         agent_name="QM",
         description="Review Requirements to ensure completeness and no open questions remain.",
-        allowed_actions=["read_file", "update_status", "post_comment", "approve_gate", "reject_gate"],
+        allowed_actions=["read_file", "update_status", "post_comment", "append_shared_context", "approve_gate", "reject_gate"],
         gate_to_update="analysis",
         next_state=WorkItemStatus.READY_FOR_DESIGN
     ),
@@ -53,7 +53,7 @@ WORKFLOW_RULES: List[WorkflowRule] = [
         current_state=WorkItemStatus.READY_FOR_DESIGN,
         agent_name="Architect",
         description="Review Requirements and generate Technical Design.",
-        allowed_actions=["read_file", "write_file", "create_branch", "add_files", "commit_changes", "add_link", "update_status", "post_comment", "approve_gate", "reject_gate"],
+        allowed_actions=["read_file", "write_file", "create_branch", "add_files", "commit_changes", "add_commit_hash", "update_git_metadata", "add_link", "append_shared_context", "update_status", "post_comment", "approve_gate", "reject_gate"],
         required_artifact_pattern="docs/design/ARCH-*.md",
         gate_to_update="design",
         next_state=WorkItemStatus.READY_FOR_DEVELOPMENT
@@ -64,7 +64,7 @@ WORKFLOW_RULES: List[WorkflowRule] = [
         current_state=WorkItemStatus.READY_FOR_DEVELOPMENT,
         agent_name="Developer",
         description="Implement the feature code based on the Technical Design.",
-        allowed_actions=["read_file", "write_file", "create_branch", "add_files", "commit_changes", "update_status", "post_comment"],
+        allowed_actions=["read_file", "write_file", "create_branch", "add_files", "commit_changes", "add_commit_hash", "update_git_metadata", "append_shared_context", "update_status", "post_comment"],
         # No single artifact pattern for code, but implied output is source code
         next_state=WorkItemStatus.READY_FOR_TESTING
     ),
@@ -74,7 +74,7 @@ WORKFLOW_RULES: List[WorkflowRule] = [
         current_state=WorkItemStatus.READY_FOR_TESTING,
         agent_name="Tester",
         description="Write and execute automated tests against the implementation.",
-        allowed_actions=["read_file", "write_file", "run_test_command", "create_branch", "add_files", "commit_changes", "update_status", "post_comment", "approve_gate", "reject_gate"],
+        allowed_actions=["read_file", "write_file", "run_test_command", "create_branch", "add_files", "commit_changes", "add_commit_hash", "update_git_metadata", "append_shared_context", "update_status", "post_comment", "approve_gate", "reject_gate"],
         gate_to_update="test",
         next_state=WorkItemStatus.READY_FOR_QA
     ),
@@ -84,7 +84,7 @@ WORKFLOW_RULES: List[WorkflowRule] = [
         current_state=WorkItemStatus.READY_FOR_QA,
         agent_name="QA",
         description="Final process check and validation.",
-        allowed_actions=["read_file", "update_status", "post_comment", "approve_gate", "reject_gate"],
+        allowed_actions=["read_file", "update_status", "post_comment", "append_shared_context", "approve_gate", "reject_gate"],
         next_state=WorkItemStatus.DONE
     ),
 
@@ -94,7 +94,7 @@ WORKFLOW_RULES: List[WorkflowRule] = [
         agent_name="None",
         description="Task is completed. No more technical work allowed. You may reopen the work item if further changes are required.",
         # Only allow reopening the work item or commenting
-        allowed_actions=["update_status", "post_comment", "read_file"],
+        allowed_actions=["update_status", "post_comment", "append_shared_context", "read_file"],
         next_state=None
     ),
 
@@ -102,8 +102,8 @@ WORKFLOW_RULES: List[WorkflowRule] = [
     WorkflowRule(
         current_state=WorkItemStatus.BLOCKED,
         agent_name="Orchestrator",
-        description="Task is blocked due to missing information or dependencies. Wait for user or Product Owner clarification.",
-        allowed_actions=["update_status", "post_comment", "read_file"],
+        description="Task is blocked due to missing information or dependencies. Wait for user clarification or resolve the dependency.",
+        allowed_actions=["update_status", "post_comment", "append_shared_context", "read_file"],
         next_state=None
     )
 ]

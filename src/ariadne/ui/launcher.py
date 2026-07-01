@@ -1,7 +1,7 @@
 """Ariadne TUI - Enhanced terminal interface for the Ariadne lifecycle engine.
 
 This module integrates the sophisticated TUI library with the project's
-V-Model agents (Product Owner, Requirements, Engineer).
+V-Model agents (Orchestrator, Requirements, Engineer).
 """
 
 import json
@@ -34,6 +34,9 @@ from src.ariadne.tools.tool_wrapper import (
     enable_approval,
     reset_session_approval,
 )
+from src.ariadne.infrastructure.container import DependencyRegistry
+from src.ariadne.runtime.context import set_active_work_item_change_callback
+from src.ariadne.runtime.token_usage import set_active_work_item_token_usage_callback
 
 logger = logging.getLogger(__name__)
 
@@ -115,6 +118,7 @@ class AriadneTUI:
         self._current_agent: Any = None
         self._current_agent_name: str | None = None
         self._init_error: str | None = None
+        self._active_work_item_id: str | None = None
 
         # Register event handlers
         self._register_handlers()
@@ -165,6 +169,8 @@ class AriadneTUI:
         # Set up tool approval callback and initialize from settings
         set_approval_callback(self.ui.request_tool_approval)
         set_tool_notify_callback(self._on_tool_notify)
+        set_active_work_item_change_callback(self._on_active_work_item_changed)
+        set_active_work_item_token_usage_callback(self._on_active_work_item_token_usage)
         enable_approval(settings.tool_approval)
 
         # Settings change handler - persist and reinitialize agents
@@ -210,6 +216,56 @@ class AriadneTUI:
             response.tool_success(tool_name, display_result)
         elif status == "error":
             response.tool_error(tool_name, display_result)
+
+        if self._active_work_item_id and status in {"success", "error"}:
+            self._refresh_active_work_item_header()
+
+    def _on_active_work_item_changed(self, work_item_id: str | None) -> None:
+        """Handle active work item context changes from agent execution."""
+        self._active_work_item_id = work_item_id
+        self._refresh_active_work_item_header()
+
+    def _on_active_work_item_token_usage(self, usage: dict[str, int]) -> None:
+        """Add model token usage to the active work item header."""
+        try:
+            self.ui.call_from_thread(self.ui.add_active_work_item_token_usage, usage)
+        except Exception:
+            self.ui.add_active_work_item_token_usage(usage)
+
+    def _refresh_active_work_item_header(self) -> None:
+        """Load active work item details and update the top bar."""
+        work_item_id = self._active_work_item_id
+        if not work_item_id:
+            self._set_active_work_item_header(None, None, None)
+            return
+
+        try:
+            work_item = DependencyRegistry.get_work_item_tools().system.get_work_item(work_item_id)
+            self._set_active_work_item_header(
+                work_item.id,
+                work_item.title,
+                work_item.status,
+            )
+        except Exception as e:
+            logger.debug("Failed to load active work item #%s: %s", work_item_id, e)
+            self._set_active_work_item_header(work_item_id, "Unable to load", "Unknown")
+
+    def _set_active_work_item_header(
+        self,
+        work_item_id: str | None,
+        title: str | None,
+        status: str | None,
+    ) -> None:
+        """Update the UI header from either the UI thread or an agent thread."""
+        try:
+            self.ui.call_from_thread(
+                self.ui.set_active_work_item_info,
+                work_item_id,
+                title,
+                status,
+            )
+        except Exception:
+            self.ui.set_active_work_item_info(work_item_id, title, status)
 
     def _report_error(
         self,

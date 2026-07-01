@@ -13,7 +13,7 @@ class TesterAgent(BaseAgent):
     """
 
     def __init__(self, ticket_tools=None, file_tools=None, git_tools=None):
-        super().__init__("TESTER_AGENT_API_KEY")
+        super().__init__()
 
         try:
             self.ticket_tools = ticket_tools or DependencyRegistry.get_work_item_tools()
@@ -40,6 +40,8 @@ class TesterAgent(BaseAgent):
             self.git_tools.checkout_branch,
             self.git_tools.add_files,
             self.git_tools.commit_changes,
+            self.ticket_tools.add_commit_hash,
+            self.ticket_tools.update_git_metadata,
             self.add_comment,
             self.update_ticket
         ])

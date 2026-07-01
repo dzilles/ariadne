@@ -1,7 +1,7 @@
 import logging
 import json
 import os
-from typing import Optional, Any, Dict, Tuple
+from typing import Any, Dict, List, Tuple
 from pydantic import Field
 from pydantic.fields import FieldInfo
 from pydantic_settings import BaseSettings, SettingsConfigDict, PydanticBaseSettingsSource
@@ -82,6 +82,31 @@ class Settings(BaseSettings):
     verbose: bool = Field(default=False, description="Enable verbose output")
 
     tool_approval: bool = Field(default=True, description="Require approval for tool execution")
+
+    tool_audit_enabled: bool = Field(default=True, description="Automatically append configured tool calls to the active work item log")
+
+    tool_audit_logged_tools: List[str] = Field(
+        default_factory=lambda: [
+            "write_file",
+            "run_shell_command",
+            "commit_changes",
+            "update_status",
+            "approve_gate",
+            "reject_gate",
+            "add_link",
+            "add_commit_hash",
+            "update_git_metadata",
+            "delegate_to_agent",
+        ],
+        description="Tool names that should be logged to the active work item"
+    )
+
+    tool_audit_logged_statuses: List[str] = Field(
+        default_factory=lambda: ["success", "error", "cancelled"],
+        description="Tool execution statuses that should be logged to the active work item"
+    )
+
+    tool_audit_result_max_chars: int = Field(default=1000, description="Maximum result characters stored per tool audit log entry")
 
     
 

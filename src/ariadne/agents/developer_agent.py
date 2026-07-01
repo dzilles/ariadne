@@ -14,7 +14,7 @@ class DeveloperAgent(BaseAgent):
     """
 
     def __init__(self, ticket_tools=None, file_tools=None, git_tools=None, shell_tools=None):
-        super().__init__("DEVELOPER_AGENT_API_KEY")
+        super().__init__()
 
         try:
             self.ticket_tools = ticket_tools or DependencyRegistry.get_work_item_tools()
@@ -43,6 +43,8 @@ class DeveloperAgent(BaseAgent):
             self.git_tools.checkout_branch,
             self.git_tools.add_files,
             self.git_tools.commit_changes,
+            self.ticket_tools.add_commit_hash,
+            self.ticket_tools.update_git_metadata,
             self.add_comment,
             self.update_ticket
         ])

@@ -1,12 +1,12 @@
 # Ariadne
 
-Ariadne is an autonomous software lifecycle engine implementing the V-Model. It orchestrates AI agents to convert tickets from Plane into fully documented, tested, and version-controlled software using standard Git.
+Ariadne is an autonomous software lifecycle engine implementing the V-Model. It orchestrates AI agents to convert tickets from a local SQLite database into fully documented, tested, and version-controlled software using standard Git.
 
 The core philosophy is Dual-Gate Verification: No artifact moves to the next phase until it has been explicitly reviewed and approved by both an AI Auditor and a Human Operator.
 
 ## Technology Stack
 
-- **Project Management:** Plane (Source of Truth for Tasks)
+- **Project Management:** Local SQLite Database (Source of Truth for Tasks)
 - **Documentation & Analysis:** MkDocs (Markdown)
 - **Design:** Mermaid.js (Diagrams-as-Code)
 - **Version Control:** Git (Standard local/remote workflows)
@@ -40,7 +40,45 @@ graph TD
 
 ## Installation
 
-### 1. Setup Environment
+### pip
+
+Install from a local checkout:
+```bash
+git clone https://github.com/your-org/ariadne.git
+cd ariadne
+python -m pip install .
+```
+
+For development:
+```bash
+python -m pip install -e ".[dev]"
+```
+
+After installation, use the console command:
+```bash
+ariadne init
+ariadne tui
+```
+
+### Arch Linux / pacman
+
+Build and install a self-contained local pacman package:
+```bash
+git clone https://github.com/your-org/ariadne.git
+cd ariadne/packaging/arch
+makepkg -si
+```
+
+This builds from the local git checkout, installs Ariadne into `/opt/ariadne-lifecycle`, and creates `/usr/bin/ariadne`. Python dependencies are installed into Ariadne's private virtual environment during package build, so this does not require AUR Python packages and does not install into Arch's system Python.
+
+If you do not want a pacman package, use a virtual environment instead of system pip:
+```bash
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install .
+```
+
+### Manual Development Environment
 ```bash
 git clone https://github.com/your-org/ariadne.git
 cd ariadne
@@ -52,14 +90,14 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 2. Initialize Configuration
+### Initialize Configuration
 Initialize the local configuration folder.
 ```bash
-python src/configuration/init_config.py
+ariadne init
 ```
-This will create an `.ariadne/.env` file. You should edit this file to configure your local setup (e.g., pointing to your self-hosted `PLANE_API_URL` and `PLANE_WS_SLUG`). 
+This will create an `.ariadne/user_settings.json` file where you can configure your LLM backend and other preferences.
 
-*Note: For security reasons, do **not** put API keys in this file. Ariadne uses a secure system Vault for secrets.*
+*Note: For security reasons, API keys are NOT stored in files. Ariadne uses a secure system Vault for secrets.*
 
 ## Usage: The Terminal UI (TUI)
 
@@ -67,7 +105,7 @@ Ariadne operates entirely through an advanced, interactive Terminal UI.
 
 To launch the engine:
 ```bash
-python ariadne.py tui
+ariadne tui
 ```
 
 ### Managing Secrets
@@ -75,15 +113,19 @@ The first time you run Ariadne, you must configure your API keys. Ariadne stores
 
 Inside the TUI, use the `/secret` command:
 ```text
-/secret PLANE_API_TOKEN <your_plane_token>
 /secret LLM_API_KEY <your_gemini_or_openai_key>
 ```
-*Optional: You can also specify unique keys for individual agents (e.g., `/secret PO_AGENT_API_KEY ...`). If not set, they will fall back to the main keys.*
+### Ticket Management (CLI)
+Ariadne provides simple CLI commands to manage your local tickets:
+```bash
+ariadne list-tickets       # List all tickets in a table
+ariadne get-ticket <ID>    # Show full details of a ticket
+```
 
 ### Selecting Agents
 Ariadne utilizes specialized agents for different phases of the V-Model. You can switch the active agent based on the task you need performed:
 ```text
-/agent "Product Owner"  # Manages the backlog
+/agent "Orchestrator"   # Manages the backlog and coordinates workflow
 /agent "Requirements"   # Refines tickets into specs
 /agent "Architect"      # Designs the system architecture
 /agent "Developer"      # Writes the code
@@ -93,6 +135,6 @@ Ariadne utilizes specialized agents for different phases of the V-Model. You can
 ### Executing Tasks
 Once an agent is selected, you simply converse with it:
 ```text
-> Please implement the authentication logic defined in Ticket-102.
+> Please implement the authentication logic defined in Ticket-1.
 ```
 The agent will autonomously read the ticket, execute the necessary bash/git commands, modify the code, and ask for your approval via the Dual-Gate Verification system before making any permanent commits or marking tickets as completed.

@@ -1,138 +1,89 @@
 # Ariadne Ticket System Specification
 
-This document defines the standardized structure, workflow, and data model for tickets within the Ariadne autonomous lifecycle. This specification is designed to be tool-agnostic, with specific implementation details provided for **Plane**.
+This document defines the standardized structure, workflow, and data model for tickets within the Ariadne autonomous lifecycle.
 
 ---
 
 ## 1. Ticket Structure (Description)
 
-The `description` field of every ticket must follow this Markdown schema. This ensures Agents can reliably parse requirements and acceptance criteria.
+The `description` field of every ticket must follow this Markdown schema to ensure Agents can reliably parse requirements and acceptance criteria.
 
 ### Feature / User Story Schema
-
 ```markdown
 # User Story
-**As a** [Role]
-**I want** [Action/Feature]
-**So that** [Benefit/Value]
+**As a** [Role] **I want** [Action/Feature] **So that** [Benefit/Value]
 
 # Acceptance Criteria
-- [ ] Criteria 1 (Must be verifiable)
+- [ ] Criteria 1
 - [ ] Criteria 2
-- [ ] Criteria 3
 
-# Technical Context (Optional)
-*   **Module:** [e.g., Auth, Database]
-*   **Constraints:** [e.g., Response < 200ms]
-```
-
-### Bug Report Schema
-
-```markdown
-# Bug Report
-**Description:** [Short summary]
-**Severity:** [High/Medium/Low]
-
-# Reproduction Steps
-1.  Navigate to...
-2.  Click on...
-3.  Observe error...
-
-# Expected Behavior
-[What should have happened]
-
-# Actual Behavior
-[What actually happened]
+# Technical Context
+*   **Stable ID:** [e.g., REQ-001]
+*   **Module:** [e.g., TUI]
+*   **Dependencies:** [e.g., REQ-000, ARCH-005]
 ```
 
 ---
 
 ## 2. Workflow & Status Mapping
 
-The lifecycle is driven by the **Ticket Status**. Each status corresponds to a specific Agent owner.
-
-| Standard Status | Owner Agent | Trigger Condition | Success Transition | Rejection Transition |
-| :--- | :--- | :--- | :--- | :--- |
-| `Backlog` | **Product Owner** | Created | `Ready for Analysis` | `Trash` |
-| `Ready for Analysis` | **Requirements** | Moved from Backlog | `Ready for Design` | `Backlog` (Clarification) |
-| `Ready for Design` | **Architect** | Analysis Approved | `Ready for Development` | `Ready for Analysis` |
-| `Ready for Development`| **Developer** | Design Approved | `Ready for Testing` | `Ready for Design` |
-| `Ready for Testing` | **Tester** | Implementation Done | `Ready for QA` | `Ready for Development` |
-| `Ready for QA` | **QA / Human** | Tests Passed | `Done` | `Ready for Development` |
-| `Done` | None | QA Approved | - | - |
+| Standard Status | Owner Agent | Success Transition |
+| :--- | :--- | :--- |
+| `Backlog` | **Orchestrator** | `Ready for Analysis` |
+| `Ready for Analysis` | **Requirements** | `Ready for Design` |
+| `Ready for Design` | **Architect** | `Ready for Development` |
+| `Ready for Development`| **Developer** | `Ready for Testing` |
+| `Ready for Testing` | **Tester** | `Ready for QA` |
+| `Ready for QA` | **QA / Human** | `Done` |
 
 ---
 
-## 3. Gate & Approval Tracking (Fields)
+## 3. Stable ID & Traceability
 
-Approvals and administrative status are tracked via **Structured Fields**, not within the description text.
+Documentation and code are linked to tickets via **Stable IDs**, which persist even after a ticket is closed.
 
-### Abstract Data Model
+### 3.1 Custom Fields (SQLite)
+The following properties must be set on every ticket:
+*   **`Stable ID`**: The persistent ID (e.g., `REQ-001`, `ARCH-001`).
+*   **`Links to`**: References to parent or related IDs (e.g., `ARCH-001 traces to REQ-001`).
 
-The system expects the following keys to be available on a ticket object:
-
-*   `gate_analysis_status`: Enum(`Pending`, `Approved`, `Rejected`)
-*   `gate_design_status`: Enum(`Pending`, `Approved`, `Rejected`)
-*   `gate_test_status`: Enum(`Pending`, `Approved`, `Rejected`)
-
-### Implementation: Plane
-
-In Plane, these are implemented as **Custom Properties**.
-
-*   **Property Name:** `Analysis Review` (Select)
-*   **Property Name:** `Design Review` (Select)
-*   **Property Name:** `Test Review` (Select)
+### 3.2 Artifact Naming & Linking
+- Requirements: `docs/requirements/REQ-XXX.md`
+- Architecture: `docs/design/ARCH-XXX.md`
+- **Internal Links:** Every artifact MUST have a "Traceability" section at the bottom listing its parent and children IDs.
 
 ---
 
-## 4. Artifact Linking
+## 4. Artifact Templates (Traceability Sections)
 
-Agents produce files (Specs, Designs, Tests). These must be linked to the ticket for traceability.
+### REQ-XXX Template Add-on:
+```markdown
+## Traceability
+- **Parent Requirement:** [None or REQ-YYY]
+- **Children Designs:** [ARCH-ZZZ]
+- **Related Requirements:** [REQ-AAA]
+```
 
-### Abstract Data Model
-
-*   `artifact_links`: List[Object] (`title`, `url`)
-
-### Implementation: Plane
-
-*   Use the native **Links** section of a Ticket.
-*   **Format:**
-    *   Title: `SPEC-123 (Requirements)`
-    *   URL: `https://github.com/.../blob/main/docs/requirements/REQ-123.md` (or local file path reference if no remote)
+### ARCH-XXX Template Add-on:
+```markdown
+## Traceability
+- **Implements:** [REQ-XXX]
+- **Interfaces with:** [ARCH-BBB]
+- **Implementation:** [File paths or Module names]
+```
 
 ---
 
-## 5. Agent Responsibilities
-
-### Product Owner (PO)
-*   **Input:** Raw user requests.
-*   **Action:** Creates tickets, ensures the "User Story" schema is valid.
-*   **Output:** Ticket in `Ready for Analysis`.
+## 5. Agent Mission Protocols
 
 ### Requirements Agent
-*   **Input:** Ticket in `Ready for Analysis`.
-*   **Action:** Reads User Story, creates `docs/requirements/REQ-{id}.md`.
-*   **Gate:** Sets `Analysis Review` = `Approved`.
-*   **Output:** Ticket in `Ready for Design` (linked to REQ doc).
+*   **Action:** Creates `docs/requirements/REQ-XXX.md`.
+*   **Traceability:** Must explicitly link to the Epic and any parent requirements.
 
 ### Architect Agent
-*   **Input:** Ticket in `Ready for Design`.
-*   **Action:** Reads REQ doc, creates `docs/design/DESIGN-{id}.md`.
-*   **Gate:** Sets `Design Review` = `Approved`.
-*   **Output:** Ticket in `Ready for Development`.
+*   **Action:** Creates `docs/design/ARCH-XXX.md`.
+*   **Traceability:** Must map every architectural component to a Functional Requirement (FR) from the REQ doc.
 
 ### Developer Agent
-*   **Input:** Ticket in `Ready for Development`.
-*   **Action:** Reads DESIGN doc, implements code in `src/`.
-*   **Output:** Ticket in `Ready for Testing`.
-
-### Tester Agent
-*   **Input:** Ticket in `Ready for Testing`.
-*   **Action:** Reads Acceptance Criteria, writes/runs tests.
-*   **Gate:** Sets `Test Review` = `Approved`.
-*   **Output:** Ticket in `Ready for QA`.
-
-### QA Agent
-*   **Input:** Ticket in `Ready for QA`.
-*   **Action:** Validates all Gates are `Approved` and performs final check.
-*   **Output:** Ticket in `Done`.
+*   **Action:** Implements logic in `src/`.
+*   **Traceability:** Adds `Fulfills ARCH-XXX` tags to function docstrings.
