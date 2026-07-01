@@ -10,33 +10,16 @@ import os
 from typing import Any
 
 from src.ariadne.ui import ChatUI, Agent, BotResponse
-from src.ariadne.ui.agent_adapter import (
-    AGENT_CLASSES,
-    AGENT_DESCRIPTIONS,
-    handle_message,
-    get_agent_names,
+from src.ariadne.application.controller import AriadneApplicationController
+from src.ariadne.application.ui_contract import (
+    CommandResult,
+    TokenUsage,
+    ToolEvent,
+    WorkItemInfo,
 )
-from src.ariadne.ui.history import (
-    has_history,
-    load_history,
-    save_history,
-    HistoryError,
-    HistoryFormatError,
-    HistoryNotFoundError,
-)
-from src.ariadne.config.vault import Vault
 from src.ariadne.ui.commands import CommandRegistry, create_default_commands
 from src.ariadne.config.settings import settings
 from src.ariadne.infrastructure.logging import setup_logging
-from src.ariadne.tools.tool_wrapper import (
-    set_approval_callback,
-    set_tool_notify_callback,
-    enable_approval,
-    reset_session_approval,
-)
-from src.ariadne.infrastructure.container import DependencyRegistry
-from src.ariadne.runtime.context import set_active_work_item_change_callback
-from src.ariadne.runtime.token_usage import set_active_work_item_token_usage_callback
 
 logger = logging.getLogger(__name__)
 
@@ -92,14 +75,15 @@ class AriadneTUI:
         # Set up logging
         setup_logging()
         configure_logging()
+        self.controller = AriadneApplicationController()
 
         # Create Agent wrappers for UI
         agents = [
             Agent(
-                name=name,
-                description=AGENT_DESCRIPTIONS.get(name, f"{name} Agent"),
+                name=agent.name,
+                description=agent.description,
             )
-            for name in get_agent_names()
+            for agent in self.controller.list_agents()
         ]
 
         # Create custom command registry
@@ -112,13 +96,6 @@ class AriadneTUI:
             agents=agents,
             settings=settings,
         )
-
-        # Agent instance cache
-        self._agent_instances: dict[str, Any] = {}
-        self._current_agent: Any = None
-        self._current_agent_name: str | None = None
-        self._init_error: str | None = None
-        self._active_work_item_id: str | None = None
 
         # Register event handlers
         self._register_handlers()
@@ -149,13 +126,9 @@ class AriadneTUI:
         # Message handler
         @self.ui.on_message
         async def on_message(message: str, response: BotResponse) -> None:
-            if tui._current_agent:
-                await handle_message(message, response, tui._current_agent)
-            elif tui._init_error:
-                # Error already logged during init, just show in TUI
-                tui._report_error(tui._init_error, response, log=False)
-            else:
-                tui._report_error("No agent selected. Use /agent to select one.", response)
+            await tui.controller.handle_user_message(message, response)
+
+        self.ui.on_cancel(self.controller.cancel_active_run)
 
         # Custom command handlers
         self.ui.commands.set_handler("save", self._cmd_save)
@@ -166,12 +139,13 @@ class AriadneTUI:
         self.ui.commands.set_completions("secret", self._get_secret_completions)
         self.ui.commands.set_handler("copy", self._cmd_copy)
 
-        # Set up tool approval callback and initialize from settings
-        set_approval_callback(self.ui.request_tool_approval)
-        set_tool_notify_callback(self._on_tool_notify)
-        set_active_work_item_change_callback(self._on_active_work_item_changed)
-        set_active_work_item_token_usage_callback(self._on_active_work_item_token_usage)
-        enable_approval(settings.tool_approval)
+        self.controller.bind_runtime_callbacks(
+            approval_callback=self.ui.request_tool_approval,
+            tool_event_callback=self._on_tool_event,
+            active_work_item_callback=self._on_active_work_item_changed,
+            token_usage_callback=self._on_active_work_item_token_usage,
+            tool_approval_enabled=settings.tool_approval,
+        )
 
         # Settings change handler - persist and reinitialize agents
         @self.ui.on_settings_change
@@ -183,18 +157,17 @@ class AriadneTUI:
 
             # Handle tool_approval setting change
             if field_name == "tool_approval":
-                enable_approval(value)
-                reset_session_approval()
+                tui.controller.set_tool_approval_enabled(value)
                 return
 
             # Clear and reinitialize agents for other settings
-            tui._clear_agent_cache()
+            tui.controller.clear_agent_cache()
             active_agent = tui.ui.get_active_agent()
             if active_agent:
                 tui._switch_agent(active_agent)
 
-    def _on_tool_notify(self, tool_name: str, status: str, args: dict, result: str) -> None:
-        """Handle tool execution notifications."""
+    def _on_tool_event(self, event: ToolEvent) -> None:
+        """Render tool execution events."""
         # Find the current bot response (last one in conversation)
         response = None
         for msg in reversed(self.ui.conversation.messages):
@@ -206,49 +179,35 @@ class AriadneTUI:
             return
 
         # Truncate result for display
-        display_result = result
+        display_result = event.result
         if len(display_result) > 100:
             display_result = display_result[:100] + "..."
 
-        if status == "start":
-            response.tool(tool_name, "Running...")
-        elif status == "success":
-            response.tool_success(tool_name, display_result)
-        elif status == "error":
-            response.tool_error(tool_name, display_result)
+        if event.status == "start":
+            response.tool(event.name, "Running...")
+        elif event.status == "success":
+            response.tool_success(event.name, display_result)
+        elif event.status in {"error", "cancelled"}:
+            response.tool_error(event.name, display_result)
 
-        if self._active_work_item_id and status in {"success", "error"}:
-            self._refresh_active_work_item_header()
-
-    def _on_active_work_item_changed(self, work_item_id: str | None) -> None:
-        """Handle active work item context changes from agent execution."""
-        self._active_work_item_id = work_item_id
-        self._refresh_active_work_item_header()
-
-    def _on_active_work_item_token_usage(self, usage: dict[str, int]) -> None:
-        """Add model token usage to the active work item header."""
-        try:
-            self.ui.call_from_thread(self.ui.add_active_work_item_token_usage, usage)
-        except Exception:
-            self.ui.add_active_work_item_token_usage(usage)
-
-    def _refresh_active_work_item_header(self) -> None:
-        """Load active work item details and update the top bar."""
-        work_item_id = self._active_work_item_id
-        if not work_item_id:
+    def _on_active_work_item_changed(self, work_item: WorkItemInfo | None) -> None:
+        """Render active work item changes."""
+        if not work_item:
             self._set_active_work_item_header(None, None, None)
             return
+        self._set_active_work_item_header(work_item.id, work_item.title, work_item.status)
 
+    def _on_active_work_item_token_usage(self, usage: TokenUsage) -> None:
+        """Add model token usage to the active work item header."""
+        usage_dict = {
+            "input_tokens": usage.input_tokens,
+            "output_tokens": usage.output_tokens,
+            "total_tokens": usage.total_tokens,
+        }
         try:
-            work_item = DependencyRegistry.get_work_item_tools().system.get_work_item(work_item_id)
-            self._set_active_work_item_header(
-                work_item.id,
-                work_item.title,
-                work_item.status,
-            )
-        except Exception as e:
-            logger.debug("Failed to load active work item #%s: %s", work_item_id, e)
-            self._set_active_work_item_header(work_item_id, "Unable to load", "Unknown")
+            self.ui.call_from_thread(self.ui.add_active_work_item_token_usage, usage_dict)
+        except Exception:
+            self.ui.add_active_work_item_token_usage(usage_dict)
 
     def _set_active_work_item_header(
         self,
@@ -278,15 +237,20 @@ class AriadneTUI:
         Args:
             message: The error message
             response: If provided, show error immediately in this response.
-                      If None, store in _init_error for later display.
+                      If None, only log the error.
             log: If True, also log the error. Set False for user-facing only.
         """
         if log:
             logger.error(message)
         if response:
             response.error(message)
+
+    def _complete_command(self, response: BotResponse, result: CommandResult) -> None:
+        """Render an application command result in the current conversation."""
+        if result.is_error:
+            self._report_error(result.message, response)
         else:
-            self._init_error = message
+            response.complete(result.message)
 
     def _switch_agent(self, agent: Agent | None) -> None:
         """Switch to a different agent.
@@ -294,198 +258,42 @@ class AriadneTUI:
         Args:
             agent: The Agent to switch to, or None to clear
         """
-        # Reset session approval when switching agents
-        reset_session_approval()
-
-        if agent is None:
-            self._current_agent = None
-            self._current_agent_name = None
-            return
-
-        name = agent.name
-        self._init_error = None
-
-        # Check if we already have this agent instantiated
-        if name not in self._agent_instances:
-            try:
-                agent_class = AGENT_CLASSES.get(name)
-                if agent_class:
-                    self._agent_instances[name] = agent_class()
-                else:
-                    self._report_error(f"Unknown agent class: {name}")
-                    return
-            except Exception as e:
-                self._report_error(f"Failed to initialize {name}: {e}")
-                return
-
-        self._current_agent = self._agent_instances.get(name)
-        self._current_agent_name = name
+        result = self.controller.switch_agent(agent.name if agent else None)
+        if result.is_error:
+            self._report_error(result.message)
 
     async def _cmd_save(self) -> None:
         """Save chat history for current agent."""
         response = self.ui.conversation.add_bot_response()
-
-        if not self._current_agent or not self._current_agent_name:
-            self._report_error("No agent selected. Use /agent first.", response)
-            return
-
-        if save_history(self._current_agent, self._current_agent_name):
-            response.complete(
-                f"Chat history saved for **{self._current_agent_name}**"
-            )
-        else:
-            self._report_error("Failed to save chat history", response)
+        self._complete_command(response, self.controller.save_chat_history())
 
     async def _cmd_load(self) -> None:
         """Load chat history for current agent."""
         response = self.ui.conversation.add_bot_response()
-
-        if not self._current_agent or not self._current_agent_name:
-            self._report_error("No agent selected. Use /agent first.", response)
-            return
-
-        try:
-            if load_history(self._current_agent, self._current_agent_name):
-                summary = get_history_summary(self._current_agent_name)
-                count = summary.get("message_count", 0) if summary else 0
-                response.complete(
-                    f"Loaded {count} messages for **{self._current_agent_name}**"
-                )
-        except HistoryNotFoundError:
-            response.complete(
-                f"No saved history found for **{self._current_agent_name}**"
-            )
-        except HistoryFormatError as e:
-            self._report_error(f"Failed to load history: Invalid format ({str(e)})", response)
-        except HistoryError as e:
-            self._report_error(f"Failed to load history: {str(e)}", response)
-        except Exception as e:
-            self._report_error(f"An unexpected error occurred: {str(e)}", response)
+        self._complete_command(response, self.controller.load_chat_history())
 
     async def _cmd_history(self) -> None:
         """Show history status for all agents."""
         response = self.ui.conversation.add_bot_response()
-
-        lines = ["**Chat History Status:**\n"]
-
-        for name in get_agent_names():
-            summary = get_history_summary(name)
-            active = " (active)" if name == self._current_agent_name else ""
-
-            if summary:
-                count = summary.get("message_count", 0)
-                lines.append(f"- `{name}`{active}: {count} messages saved")
-            else:
-                lines.append(f"- `{name}`{active}: No saved history")
-
-        lines.append("\nUse `/save` to save or `/load` to restore history.")
-        response.complete("\n".join(lines))
+        self._complete_command(response, self.controller.get_history_status())
 
     async def _cmd_clear_history(self) -> None:
         """Clear saved history for current agent."""
         response = self.ui.conversation.add_bot_response()
-
-        if not self._current_agent_name:
-            self._report_error("No agent selected. Use /agent first.", response)
-            return
-
-        # Clear the file
-        clear_history_file(self._current_agent_name)
-
-        # Also clear the agent's in-memory history
-        if self._current_agent and hasattr(self._current_agent, "clear_history"):
-            self._current_agent.clear_history()
-
-        response.complete(
-            f"History cleared for **{self._current_agent_name}**"
-        )
+        self._complete_command(response, self.controller.clear_chat_history())
 
     def _get_secret_completions(self, context: str = "") -> list[str]:
         """Get available secret key names for completions."""
-        keys = Vault.list_managed_keys()
-        parts = context.split()
-
-        # If first arg complete, offer "delete" as second arg option
-        if len(parts) >= 1 and context.endswith(" "):
-            return ["delete"]
-
-        return keys
+        return self.controller.get_secret_completions(context)
 
     def _clear_agent_cache(self) -> None:
         """Clear cached agent instances so they get re-created with new settings."""
-        self._agent_instances.clear()
-        self._current_agent = None
-        self._current_agent_name = None
+        self.controller.clear_agent_cache()
 
     async def _cmd_secret(self, args: str = "") -> None:
         """Manage API keys in secure vault."""
         response = self.ui.conversation.add_bot_response()
-
-        parts = args.split(maxsplit=1)
-        key_name = parts[0].upper() if parts else ""
-        value = parts[1] if len(parts) > 1 else ""
-
-        managed_keys = Vault.list_managed_keys()
-
-        if not key_name:
-            # Show status of all managed keys
-            lines = ["**Secret Vault Status:**\n"]
-            for key in managed_keys:
-                secret = Vault.get_secret(key)
-                if secret:
-                    # Show masked value
-                    masked = secret[:4] + "..." + secret[-4:] if len(secret) > 8 else "****"
-                    lines.append(f"- `{key}`: {masked}")
-                else:
-                    lines.append(f"- `{key}`: *not set*")
-            lines.append("\n**Usage:**")
-            lines.append("- `/secret KEY VALUE` - Set a secret")
-            lines.append("- `/secret KEY delete` - Remove a secret")
-            response.complete("\n".join(lines))
-            return
-
-        # Validate key name
-        if key_name not in managed_keys:
-            available = ", ".join(f"`{k}`" for k in managed_keys)
-            self._report_error(
-                f"Unknown key `{key_name}`. Available: {available}",
-                response
-            )
-            return
-
-        if not value:
-            # Show specific key status
-            secret = Vault.get_secret(key_name)
-            if secret:
-                masked = secret[:4] + "..." + secret[-4:] if len(secret) > 8 else "****"
-                response.complete(f"`{key_name}` is set: {masked}")
-            else:
-                response.complete(f"`{key_name}` is not set.\n\nUse `/secret {key_name} YOUR_API_KEY` to set it.")
-            return
-
-        if value.lower() == "delete":
-            # Delete the secret
-            try:
-                Vault.delete_secret(key_name)
-                self._clear_agent_cache()
-                response.complete(
-                    f"Deleted `{key_name}` from vault.\n\n"
-                    f"Use `/agent` to re-initialize an agent."
-                )
-            except Exception as e:
-                self._report_error(f"Failed to delete secret: {e}", response)
-            return
-
-        # Set the secret
-        try:
-            Vault.set_secret(key_name, value)
-            self._clear_agent_cache()
-            response.complete(
-                f"Saved `{key_name}` to secure vault.\n\n"
-                f"Use `/agent` to re-initialize an agent with the new key."
-            )
-        except Exception as e:
-            self._report_error(f"Failed to save secret: {e}", response)
+        self._complete_command(response, self.controller.manage_secret(args))
 
     async def _cmd_copy(self) -> None:
         """Copy last response to clipboard."""
@@ -510,37 +318,19 @@ class AriadneTUI:
 
     def run(self) -> None:
         """Run the TUI application."""
-        # Initialize the first agent
-        agents = self.ui.get_agents()
-        if agents:
-            self._switch_agent(agents[0])
-
-            # Auto-load history if available
-            if self._current_agent_name:
-                try:
-                    load_history(self._current_agent, self._current_agent_name)
-                    logger.info(
-                        f"Auto-loaded history for {self._current_agent_name}"
-                    )
-                except HistoryNotFoundError:
-                    # Ignore if no history exists for auto-load
-                    pass
-                except HistoryError as e:
-                    logger.warning(
-                        f"Failed to auto-load history for {self._current_agent_name}: {e}"
-                    )
+        self.controller.load_initial_agent()
 
         # Add welcome message showing agent status
         welcome = self.ui.conversation.add_bot_response()
-        if self._current_agent:
+        if self.controller.current_agent:
             welcome.info(
                 f"**Ariadne TUI**\n\n"
-                f"Active agent: **{self._current_agent_name}**\n\n"
+                f"Active agent: **{self.controller.current_agent_name}**\n\n"
                 f"Type a message to chat, or use `/help` for commands."
             )
-        elif self._init_error:
+        elif self.controller.init_error:
             welcome.error(
-                f"Failed to initialize agent: {self._init_error}\n\n"
+                f"Failed to initialize agent: {self.controller.init_error}\n\n"
                 f"Check your configuration and try `/agent` to select one."
             )
         else:

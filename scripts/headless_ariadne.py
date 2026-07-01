@@ -43,7 +43,7 @@ from typing import Any, Dict, List
 # Add project root to path
 sys.path.append(os.getcwd())
 
-from src.ariadne.ui.agent_adapter import AGENT_CLASSES
+from src.ariadne.application.agents import AGENT_CLASSES
 from src.ariadne.infrastructure.container import DependencyRegistry
 from src.ariadne.config.settings import settings
 from langchain_core.messages import HumanMessage, AIMessage, BaseMessage

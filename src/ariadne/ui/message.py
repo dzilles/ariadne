@@ -209,7 +209,13 @@ class BotResponse:
 
     def has_content(self) -> bool:
         """Check if there's any content to display."""
-        return bool(self.status or self.tool_results or self.response)
+        return bool(
+            self.status
+            or self.tool_results
+            or self.response
+            or self.token_usage
+            or self.state == ResponseState.CANCELLED
+        )
 
 
 @dataclass

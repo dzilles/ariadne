@@ -62,7 +62,7 @@ class OrchestratorAgent(BaseAgent):
             work_item_id: The ID of the work item.
             task_description: Specific instructions for the agent.
         """
-        from src.ariadne.ui.agent_adapter import AGENT_CLASSES
+        from src.ariadne.application.agents import AGENT_CLASSES
         from src.ariadne.runtime.context import set_active_work_item_id
         from src.ariadne.work_items.models import WorkItemStatus
         

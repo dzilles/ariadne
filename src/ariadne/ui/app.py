@@ -13,7 +13,6 @@ from textual.binding import Binding
 from .message import Conversation, BotResponse
 from .commands import CommandRegistry, create_default_commands
 from .widgets import ActiveWorkItemHeader, ChatInput, ConversationView, ApprovalDialog
-from src.ariadne.runtime import run_manager
 
 # Try to import Pydantic (optional dependency)
 try:
@@ -26,6 +25,7 @@ except ImportError:
 
 # Type alias for message handlers
 MessageHandler = Callable[[str, BotResponse], Awaitable[None]]
+CancelHandler = Callable[[], bool]
 
 
 @dataclass
@@ -67,6 +67,7 @@ class ChatUI(App):
         self.conversation = Conversation()
         self.commands = commands or create_default_commands()
         self._message_handler: MessageHandler | None = None
+        self._cancel_handler: CancelHandler | None = None
         self._current_task: asyncio.Task | None = None
         self._current_response: BotResponse | None = None
 
@@ -579,6 +580,11 @@ class ChatUI(App):
         self._message_handler = handler
         return handler
 
+    def on_cancel(self, handler: CancelHandler) -> CancelHandler:
+        """Register a callback used to request cancellation."""
+        self._cancel_handler = handler
+        return handler
+
     def compose(self) -> ComposeResult:
         """Compose the UI."""
         yield ActiveWorkItemHeader(
@@ -592,6 +598,29 @@ class ChatUI(App):
         yield ApprovalDialog()
         yield ChatInput(self.commands.all())
 
+    def on_mount(self) -> None:
+        """Focus the chat input when the app is ready."""
+        self._focus_input()
+
+    def on_click(self, event) -> None:
+        """Return focus to the chat input after clicks outside approval."""
+        self._focus_input()
+
+    def _focus_input(self) -> None:
+        """Keep keyboard input directed at the chat input when possible."""
+        try:
+            dialog = self.query_one(ApprovalDialog)
+            if dialog.has_class("visible"):
+                return
+        except Exception:
+            pass
+
+        try:
+            chat_input = self.query_one(ChatInput)
+            self.call_after_refresh(chat_input.text_area.focus)
+        except Exception:
+            pass
+
     def _on_conversation_update(self) -> None:
         """Handle conversation updates."""
         try:
@@ -599,6 +628,7 @@ class ChatUI(App):
             view.refresh_conversation()
         except Exception:
             pass  # View may not exist yet
+        self._focus_input()
 
     async def request_tool_approval(self, tool_name: str, args: dict) -> str:
         """Request user approval for a tool call.
@@ -627,11 +657,7 @@ class ChatUI(App):
             self._pending_approval_event.set()
 
         # Refocus input
-        try:
-            chat_input = self.query_one(ChatInput)
-            chat_input.text_area.focus()
-        except Exception:
-            pass
+        self._focus_input()
 
     def action_abort(self) -> None:
         """Abort the current operation."""
@@ -644,25 +670,22 @@ class ChatUI(App):
             pass
 
         if self._current_task and not self._current_task.done():
-            run_manager.request_cancel()
+            if self._cancel_handler:
+                self._cancel_handler()
             if self._current_response:
                 self._current_response.cancel()
+        self._focus_input()
 
     async def on_chat_input_submitted(self, event: ChatInput.Submitted) -> None:
         """Handle message submission."""
         if self._current_task and not self._current_task.done():
-            active_run = run_manager.get_active_run()
             self.conversation.add_user_message(event.value)
             response = self.conversation.add_bot_response()
-            if active_run:
-                response.info(
-                    "A run is already active. Press `Escape` to request cancellation, "
-                    "then wait for the current tool or model step to stop before sending a new message."
-                )
-            else:
-                response.info(
-                    "A run is still finishing. Wait for it to complete before sending a new message."
-                )
+            response.info(
+                "A run is already active. Press `Escape` to request cancellation, "
+                "then wait for the current step to stop before sending a new message."
+            )
+            self._focus_input()
             return
 
         self.conversation.add_user_message(event.value)
@@ -673,6 +696,7 @@ class ChatUI(App):
             self._current_task = asyncio.create_task(
                 self._run_handler(event.value, response)
             )
+        self._focus_input()
 
     async def _run_handler(self, message: str, response: BotResponse) -> None:
         """Run the message handler with cancellation support."""
@@ -687,6 +711,7 @@ class ChatUI(App):
         finally:
             self._current_task = None
             self._current_response = None
+            self._focus_input()
 
     async def on_chat_input_command_selected(
         self,
@@ -703,3 +728,5 @@ class ChatUI(App):
             except Exception as e:
                 response = self.conversation.add_bot_response()
                 response.error(f"Command error: {e}")
+            finally:
+                self._focus_input()

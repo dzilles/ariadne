@@ -294,6 +294,19 @@ class BotResponseWidget(Static):
                     yield Static("└  ", classes="indicator")
                 yield Static(Markdown(self.response.response), classes="content")
 
+        if self.response.state == ResponseState.CANCELLED:
+            with Container(classes="response-row"):
+                indicator = Text()
+                indicator.append("└", style="yellow")
+                indicator.append("●", style="yellow")
+                indicator.append(" ")
+                yield Static(indicator, classes="indicator")
+                if self.response.response:
+                    content = "Cancelled. Partial response above."
+                else:
+                    content = "Cancelled."
+                yield Static(Text(content, style="yellow"), classes="content")
+
         if self.response.token_usage:
             usage = self.response.token_usage
             parts = []
@@ -695,6 +708,7 @@ class ChatInput(Container):
 
         self.text_area.text = ""
         self.suggestions.hide()
+        self.text_area.focus()
 
     def _handle_command(self, value: str) -> None:
         """Handle a command input."""
