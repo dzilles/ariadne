@@ -27,6 +27,7 @@ from src.ariadne.ui.message_display import (
     ActivityAnimation,
     DisplayMode,
     format_tool_call_detail,
+    format_tool_result_preview,
     tool_event_rule,
 )
 from src.ariadne.ui.run_renderer import render_run_event
@@ -177,16 +178,15 @@ class AriadneTUI:
         if not response:
             return
 
-        # Truncate result for display
-        display_result = event.result
-        if len(display_result) > 100:
-            display_result = display_result[:100] + "..."
-
         rule = tool_event_rule(event.status)
         if rule.mode == DisplayMode.HIDDEN:
             return
 
         tool_detail = format_tool_call_detail(event.name, event.args)
+        result_preview = format_tool_result_preview(
+            event.result,
+            getattr(self.settings, "tool_result_preview_max_chars", 800),
+        )
         if event.status == "start":
             response.activity(
                 f"Tool: {event.name}",
@@ -199,23 +199,17 @@ class AriadneTUI:
             response.clear_status()
             response.activity(
                 f"Tool: {event.name}",
-                display_result,
+                result_preview,
                 mode=rule.mode,
                 animation=rule.animation,
             )
             if self._active_tool_response is response and not response.is_cancelled:
-                response.thinking(
-                    "Processing tool result...",
-                    animation=ActivityAnimation.WAVE,
-                )
+                response.thinking(animation=ActivityAnimation.WAVE)
         elif event.status in {"error", "cancelled"}:
             response.clear_status()
-            response.tool_error(event.name, display_result)
+            response.tool_error(event.name, result_preview)
             if self._active_tool_response is response and not response.is_cancelled:
-                response.thinking(
-                    "Processing tool result...",
-                    animation=ActivityAnimation.WAVE,
-                )
+                response.thinking(animation=ActivityAnimation.WAVE)
 
     def _on_active_work_item_changed(self, work_item: WorkItemInfo | None) -> None:
         """Render active work item changes."""

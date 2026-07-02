@@ -81,6 +81,8 @@ class Settings(BaseSettings):
 
     verbose: bool = Field(default=False, description="Enable verbose output")
 
+    tool_result_preview_max_chars: int = Field(default=800, description="Maximum tool output characters shown in the UI")
+
     tool_approval: bool = Field(default=True, description="Require approval for tool execution")
 
     tool_audit_enabled: bool = Field(default=True, description="Automatically append configured tool calls to the active work item log")

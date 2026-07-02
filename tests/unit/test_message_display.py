@@ -7,6 +7,7 @@ from src.ariadne.ui.message_display import (
     ActivityAnimation,
     DisplayMode,
     format_tool_call_detail,
+    format_tool_result_preview,
     run_event_rule,
     tool_event_rule,
 )
@@ -18,10 +19,10 @@ def test_run_event_display_rules_classify_lifecycle_noise():
     assert run_event_rule("run_finished").mode == DisplayMode.HIDDEN
 
 
-def test_tool_event_display_rules_keep_start_and_hide_success_until_verbose():
+def test_tool_event_display_rules_keep_start_and_success_visible():
     assert tool_event_rule("start").mode == DisplayMode.PERSISTENT
     assert tool_event_rule("start").animation == ActivityAnimation.WAVE
-    assert tool_event_rule("success").mode == DisplayMode.VERBOSE
+    assert tool_event_rule("success").mode == DisplayMode.PERSISTENT
 
 
 def test_tool_detail_formatter_shows_known_tool_parameters():
@@ -54,3 +55,11 @@ def test_tool_detail_formatter_handles_positional_and_unknown_args():
         format_tool_call_detail("unknown_tool", {"query": "abc", "limit": 3})
         == "query: abc | limit: 3"
     )
+
+
+def test_tool_result_preview_shows_output_seen_by_llm():
+    assert format_tool_result_preview("line one\nline two", 100) == (
+        "Output:\nline one\nline two"
+    )
+    assert format_tool_result_preview("abcdef", 4) == "Output:\nabc..."
+    assert format_tool_result_preview("", 4) == "Output: <empty>"

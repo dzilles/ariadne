@@ -34,7 +34,7 @@ def render_run_event(response: Any, event: RunEvent) -> None:
             animation=rule.animation,
         )
     elif event.type == "thinking":
-        response.thinking(event.detail or event.message, animation=rule.animation)
+        response.thinking(animation=rule.animation)
     elif event.type == "response_start":
         response.start_response()
     elif event.type == "response_delta":

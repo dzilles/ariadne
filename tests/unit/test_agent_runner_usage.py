@@ -83,6 +83,7 @@ def test_run_agent_emits_lifecycle_events_for_sync_agent():
 
     event_types = [event.type for event in events]
     assert event_types == ["run_started", "thinking", "complete", "run_finished"]
+    assert events[1].detail == ""
     assert events[2].message == "Echo: hello"
     assert events[3].duration_seconds is not None
 

@@ -100,5 +100,10 @@ def last_bot_response_text(messages: list[Any]) -> str:
 
 
 def _status_line_to_text(prefix: str, status: Any) -> str:
-    detail = f": {status.detail}" if status.detail else ""
-    return f"{prefix}: {status.label}{detail}"
+    if not status.detail:
+        return f"{prefix}: {status.label}"
+    detail = str(status.detail)
+    if "\n" not in detail:
+        return f"{prefix}: {status.label}: {detail}"
+    indented = "\n".join(f"  {line}" for line in detail.splitlines())
+    return f"{prefix}: {status.label}\n{indented}"

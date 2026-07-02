@@ -102,7 +102,7 @@ async def _handle_message_streaming(
     is_cancelled: Callable[[], bool],
 ) -> None:
     """Handle a LangGraph-backed agent with event streaming when available."""
-    emit(RunEvent("thinking", detail="Processing your request..."))
+    emit(RunEvent("thinking"))
     main_loop = asyncio.get_running_loop()
     import src.ariadne.tools.tool_wrapper as tool_wrapper
 
@@ -204,7 +204,7 @@ async def _handle_message_events(
             name = event.get("name", "")
 
             if kind == "on_chat_model_start":
-                emit(RunEvent("thinking", detail="Model request started..."))
+                emit(RunEvent("thinking"))
             elif kind == "on_chat_model_stream":
                 chunk = event.get("data", {}).get("chunk")
                 if chunk is not None:
@@ -268,7 +268,7 @@ async def _handle_message_sync(
     is_cancelled: Callable[[], bool],
 ) -> None:
     """Handle an agent exposing only a synchronous chat() method."""
-    emit(RunEvent("thinking", detail="Processing your request..."))
+    emit(RunEvent("thinking"))
     main_loop = asyncio.get_running_loop()
     import src.ariadne.tools.tool_wrapper as tool_wrapper
 
@@ -385,7 +385,7 @@ def _apply_event_to_response(response: Any, event: RunEvent) -> None:
     elif event.type == "run_finished":
         return
     elif event.type == "thinking":
-        response.thinking(event.detail or event.message)
+        response.thinking()
     elif event.type == "response_start":
         response.start_response()
     elif event.type == "response_delta":

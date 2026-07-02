@@ -420,7 +420,7 @@ class ChatUI(App):
         Example:
             @ui.on_message
             async def handle(message: str, response: BotResponse):
-                response.thinking("Processing...")
+                response.thinking()
                 response.complete("Done!")
         """
         self._message_handler = handler

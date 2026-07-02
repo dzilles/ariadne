@@ -29,21 +29,21 @@ def test_token_only_response_is_visible():
 def test_activity_line_is_visible():
     response = BotResponse()
 
-    response.activity("Model", "Model request started...")
+    response.activity("Tool: list_files", ".")
 
     assert response.has_content()
-    assert response.tool_results[0].label == "Model"
-    assert response.tool_results[0].detail == "Model request started..."
+    assert response.tool_results[0].label == "Tool: list_files"
+    assert response.tool_results[0].detail == "."
 
 
 def test_transient_status_is_visible_while_active():
     response = BotResponse()
 
-    response.thinking("Processing your request...", animation=ActivityAnimation.WAVE)
+    response.thinking(animation=ActivityAnimation.WAVE)
 
     assert response.has_content()
     assert response.status.label == "Thinking"
-    assert response.status.detail == "Processing your request..."
+    assert response.status.detail == ""
     assert response.status.mode == DisplayMode.TRANSIENT
     assert response.status.animation == ActivityAnimation.WAVE
 
@@ -51,6 +51,15 @@ def test_transient_status_is_visible_while_active():
 
     assert response.status is None
     assert not response.has_content()
+
+
+def test_thinking_status_can_show_provider_summary():
+    response = BotResponse()
+
+    response.thinking("Checking the repository state.")
+
+    assert response.status.label == "Thinking"
+    assert response.status.detail == "Checking the repository state."
 
 
 def test_activity_can_be_verbose_only():

@@ -47,7 +47,7 @@ RUN_EVENT_RULES = {
 
 TOOL_EVENT_RULES = {
     "start": DisplayRule(DisplayMode.PERSISTENT, ActivityAnimation.WAVE),
-    "success": DisplayRule(DisplayMode.VERBOSE),
+    "success": DisplayRule(DisplayMode.PERSISTENT),
     "error": DisplayRule(DisplayMode.PERSISTENT),
     "cancelled": DisplayRule(DisplayMode.PERSISTENT),
 }
@@ -78,6 +78,16 @@ def format_tool_call_detail(tool_name: str, args: dict | None) -> str:
     else:
         detail = _format_generic_args(args)
     return detail or "Running..."
+
+
+def format_tool_result_preview(result: str, max_chars: int = 800) -> str:
+    """Return the tool output text shown to the LLM as a compact preview."""
+    if not result:
+        return "Output: <empty>"
+    text = str(result).strip()
+    if max_chars >= 0 and len(text) > max_chars:
+        text = text[: max(0, max_chars - 1)] + "..."
+    return f"Output:\n{text}"
 
 
 def _format_read_file(args: dict) -> str:

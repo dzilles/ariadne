@@ -14,11 +14,11 @@ def test_thinking_event_sets_transient_status():
 
     render_run_event(
         response,
-        RunEvent("thinking", detail="Model request started..."),
+        RunEvent("thinking"),
     )
 
     assert response.status.label == "Thinking"
-    assert response.status.detail == "Model request started..."
+    assert response.status.detail == ""
     assert response.status.animation == ActivityAnimation.WAVE
     assert response.tool_results == []
 

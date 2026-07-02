@@ -68,11 +68,11 @@ def test_conversation_to_text_includes_debug_rows_and_tokens():
 
 def test_conversation_to_text_includes_active_status():
     response = BotResponse()
-    response.thinking("Processing tool result...")
+    response.thinking("Checking the repository state.")
 
     text = conversation_to_text([response])
 
-    assert "Active: Thinking: Processing tool result..." in text
+    assert "Active: Thinking: Checking the repository state." in text
 
 
 def test_last_bot_response_text_uses_latest_copyable_response():
@@ -80,3 +80,14 @@ def test_last_bot_response_text_uses_latest_copyable_response():
     second = BotResponse().activity("Tool: read_file", "src/app.py")
 
     assert "Tool: read_file" in last_bot_response_text([first, UserMessage("x"), second])
+
+
+def test_conversation_to_text_indents_multiline_tool_output():
+    response = BotResponse().activity(
+        "Tool: list_files",
+        "Output:\nfile_a.py\nfile_b.py",
+    )
+
+    text = conversation_to_text([response])
+
+    assert "Event: Tool: list_files\n  Output:\n  file_a.py\n  file_b.py" in text

@@ -191,10 +191,11 @@ class BotResponse:
         self,
         detail: str = "",
         *,
+        label: str = "Thinking",
         animation: ActivityAnimation = ActivityAnimation.NONE,
     ) -> "BotResponse":
-        """Set status to thinking."""
-        return self.set_status("Thinking", detail, animation=animation)
+        """Set a transient model-work status."""
+        return self.set_status(label, detail, animation=animation)
 
     def tool(
         self,
