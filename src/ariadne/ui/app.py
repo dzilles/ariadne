@@ -45,6 +45,14 @@ class Agent:
         return self.name
 
 
+@dataclass
+class ApprovalRequest:
+    """One pending tool approval prompt."""
+
+    event: asyncio.Event
+    result: str | None = None
+
+
 class ChatUI(App):
     """A minimalist terminal chat UI.
     Implementation of ARCH-15. Fulfills REQ-15.
@@ -96,8 +104,8 @@ class ChatUI(App):
         self._on_settings_change: Callable[[str, Any], None] | None = None
 
         # Tool approval
-        self._pending_approval_event: asyncio.Event | None = None
-        self._approval_result: str | None = None
+        self._approval_lock = asyncio.Lock()
+        self._pending_approval: ApprovalRequest | None = None
 
         # Set up conversation update callback
         self.conversation.set_update_callback(self._on_conversation_update)
@@ -489,26 +497,34 @@ class ChatUI(App):
 
         Returns "yes", "no", or "session".
         """
-        self._pending_approval_event = asyncio.Event()
-        self._approval_result = None
+        async with self._approval_lock:
+            request = ApprovalRequest(asyncio.Event())
+            self._pending_approval = request
 
-        # Show the dialog
-        try:
-            dialog = self.query_one(ApprovalDialog)
-            dialog.show(tool_name, args)
-            dialog.focus()
-        except Exception:
-            return "yes"  # Dialog not available, auto-approve
+            try:
+                dialog = self.query_one(ApprovalDialog)
+                dialog.show(tool_name, args)
+                dialog.focus()
+            except Exception:
+                self._pending_approval = None
+                return "yes"  # Dialog not available, auto-approve
 
-        # Wait for user response
-        await self._pending_approval_event.wait()
-        return self._approval_result or "no"
+            try:
+                await request.event.wait()
+                return request.result or "no"
+            finally:
+                try:
+                    dialog.hide()
+                except Exception:
+                    pass
+                if self._pending_approval is request:
+                    self._pending_approval = None
 
     def on_approval_dialog_response(self, event: ApprovalDialog.Response) -> None:
         """Handle approval dialog response."""
-        self._approval_result = event.result
-        if self._pending_approval_event:
-            self._pending_approval_event.set()
+        if self._pending_approval:
+            self._pending_approval.result = event.result
+            self._pending_approval.event.set()
 
         # Refocus input
         self._focus_input()
@@ -523,9 +539,9 @@ class ChatUI(App):
         except Exception:
             return False
 
-        self._approval_result = "no"
-        if self._pending_approval_event:
-            self._pending_approval_event.set()
+        if self._pending_approval:
+            self._pending_approval.result = "no"
+            self._pending_approval.event.set()
         return True
 
     def action_abort(self) -> None:

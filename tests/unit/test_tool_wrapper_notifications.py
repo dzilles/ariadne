@@ -7,6 +7,22 @@ from src.ariadne.runtime import run_manager
 from src.ariadne.tools import tool_wrapper
 
 
+class FakeApprovalFuture:
+    def __init__(self, result="yes", done=False):
+        self._result = result
+        self._done = done
+        self.cancelled = False
+
+    def done(self):
+        return self._done
+
+    def result(self):
+        return self._result
+
+    def cancel(self):
+        self.cancelled = True
+
+
 class ImmediateLoop:
     def call_soon_threadsafe(self, callback):
         callback()
@@ -71,6 +87,30 @@ def test_rejected_tool_approval_notifies_cancelled_and_returns_feedback(monkeypa
     assert approval_requests == [("read_file", {"args": ["README.md"]}, False)]
     assert notifications[0].status == "cancelled"
     assert notifications[0].args == {"args": ["README.md"]}
+
+
+def test_approval_wait_returns_no_when_cancel_requested():
+    approval_future = FakeApprovalFuture(done=False)
+    run = run_manager.start_run("Fake", "hello")
+    run_manager.request_cancel()
+
+    try:
+        result = tool_wrapper._wait_for_approval_result(approval_future, "read_file")
+    finally:
+        run_manager.finish_run(run.id)
+
+    assert result == "no"
+    assert approval_future.cancelled is True
+
+
+def test_approval_wait_times_out_closed(monkeypatch):
+    approval_future = FakeApprovalFuture(done=False)
+    monkeypatch.setattr(tool_wrapper, "APPROVAL_TIMEOUT_SECONDS", 0)
+
+    result = tool_wrapper._wait_for_approval_result(approval_future, "read_file")
+
+    assert result == "no"
+    assert approval_future.cancelled is True
 
 
 def test_cancel_requested_before_tool_notifies_cancelled(monkeypatch):

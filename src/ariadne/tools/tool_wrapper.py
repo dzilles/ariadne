@@ -1,9 +1,10 @@
 """Utility to wrap tools with error handling and approval for graceful LLM recovery."""
 
 import functools
+import inspect
 import logging
 import asyncio
-import queue
+import time
 from dataclasses import dataclass
 from typing import Callable, Any, Optional, Literal
 
@@ -30,6 +31,8 @@ _tool_notify_callback: Optional[Callable[[ToolNotification], None]] = None
 _event_loop: Optional[asyncio.AbstractEventLoop] = None
 _approval_enabled: bool = True
 _auto_approve_session: bool = False
+APPROVAL_TIMEOUT_SECONDS = 300
+APPROVAL_POLL_INTERVAL_SECONDS = 0.1
 
 
 def set_approval_callback(callback: Callable[[str, dict], Any], loop: asyncio.AbstractEventLoop = None) -> None:
@@ -172,25 +175,19 @@ def _request_approval_sync(
     if not _event_loop:
         return True
 
+    approval_future = None
     try:
-        # Use a queue to get the result from the async callback
-        result_queue = queue.Queue()
-
         async def run_approval():
-            try:
-                result = await _approval_callback(tool_name, args)
-                result_queue.put(result)
-            except Exception as e:
-                logger.error(f"Approval callback error: {e}")
-                result_queue.put("yes")  # Default to approved on error
+            result = _approval_callback(tool_name, args)
+            if inspect.isawaitable(result):
+                return await result
+            return result
 
-        # Schedule the coroutine on the event loop
-        _event_loop.call_soon_threadsafe(
-            lambda: asyncio.ensure_future(run_approval())
+        approval_future = asyncio.run_coroutine_threadsafe(
+            run_approval(),
+            _event_loop,
         )
-
-        # Wait for the result (blocking)
-        result = result_queue.get(timeout=300)  # 5 minute timeout
+        result = _wait_for_approval_result(approval_future, tool_name)
 
         if result == "session":
             _auto_approve_session = True
@@ -198,7 +195,30 @@ def _request_approval_sync(
         return result == "yes"
     except Exception as e:
         logger.error(f"Error requesting approval: {e}")
-        return True  # Default to approved on error
+        if approval_future is not None:
+            approval_future.cancel()
+        return False
+
+
+def _wait_for_approval_result(approval_future: Any, tool_name: str) -> str:
+    """Wait for one approval future while honoring runtime cancellation."""
+    deadline = time.monotonic() + APPROVAL_TIMEOUT_SECONDS
+    while True:
+        if is_cancel_requested():
+            approval_future.cancel()
+            return "no"
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            logger.error(
+                "Tool approval timed out after %s seconds for %s",
+                APPROVAL_TIMEOUT_SECONDS,
+                tool_name,
+            )
+            approval_future.cancel()
+            return "no"
+        if approval_future.done():
+            return approval_future.result()
+        time.sleep(min(APPROVAL_POLL_INTERVAL_SECONDS, remaining))
 
 
 def with_error_handling(func: Callable) -> Callable:

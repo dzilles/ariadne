@@ -194,9 +194,6 @@ async def _handle_message_events(
         async for event in events:
             if is_cancelled():
                 run_manager.request_cancel()
-                aclose = getattr(events, "aclose", None)
-                if aclose:
-                    await aclose()
                 _set_available_usage(emit, streamed_chunks)
                 return
 
