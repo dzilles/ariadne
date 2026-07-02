@@ -2,25 +2,24 @@
 
 import asyncio
 from dataclasses import dataclass
-from typing import Callable, Awaitable, Any, get_args, get_origin
-from pathlib import Path
-from enum import Enum
-import json
+from typing import Callable, Awaitable, Any
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 
+from src.ariadne.application.settings_commands import (
+    get_settings_completions,
+    handle_settings_command,
+    supports_settings_command,
+)
+
 from .message import Conversation, BotResponse
 from .commands import CommandRegistry, create_default_commands
+from .conversation_archive import (
+    read_conversation_archive,
+    write_conversation_archive,
+)
 from .widgets import ActiveWorkItemHeader, ChatInput, ConversationView, ApprovalDialog
-
-# Try to import Pydantic (optional dependency)
-try:
-    from pydantic import BaseModel
-    PYDANTIC_AVAILABLE = True
-except ImportError:
-    BaseModel = None
-    PYDANTIC_AVAILABLE = False
 
 
 # Type alias for message handlers
@@ -108,8 +107,8 @@ class ChatUI(App):
         self.commands.set_handler("agent", self._cmd_agent)
         self.commands.set_completions("agent", self._get_agent_completions)
 
-        # Settings command (only if Pydantic model provided)
-        if self._settings is not None and PYDANTIC_AVAILABLE:
+        # Settings command (only if the settings model exposes fields)
+        if supports_settings_command(self._settings):
             self.commands.add("settings", "View or change settings", "[field] [value]")
             self.commands.set_handler("settings", self._cmd_settings)
             self.commands.set_completions("settings", self._get_settings_completions)
@@ -138,227 +137,20 @@ class ChatUI(App):
 
         Context-aware: returns field names first, then field choices.
         """
-        if not self._settings or not PYDANTIC_AVAILABLE:
-            return []
-
-        parts = context.split()
-
-        if len(parts) == 0 or (len(parts) == 1 and not context.endswith(" ")):
-            # Still typing first argument: show field names
-            return list(self._settings.model_fields.keys())
-
-        # First argument complete, show choices for that field
-        field_name = parts[0]
-        if field_name in self._settings.model_fields:
-            field_info = self._settings.model_fields[field_name]
-            choices = self._get_field_choices(field_info)
-            if choices:
-                return choices
-
-        return []
-
-    def _get_field_type_name(self, field_info) -> str:
-        """Get a human-readable type name for a field."""
-        annotation = field_info.annotation
-        origin = get_origin(annotation)
-
-        # Handle Optional types
-        if origin is type(None) or str(origin) == "typing.Union":
-            args = get_args(annotation)
-            non_none = [a for a in args if a is not type(None)]
-            if non_none:
-                annotation = non_none[0]
-                origin = get_origin(annotation)
-
-        # Handle Literal
-        if str(origin) == "typing.Literal":
-            choices = get_args(annotation)
-            return f"Literal{list(choices)}"
-
-        # Handle Enum
-        if isinstance(annotation, type) and issubclass(annotation, Enum):
-            choices = [e.value for e in annotation]
-            return f"Enum{choices}"
-
-        # Handle basic types
-        if annotation is str:
-            return "str"
-        elif annotation is int:
-            return "int"
-        elif annotation is float:
-            return "float"
-        elif annotation is bool:
-            return "bool"
-        elif origin is list:
-            return "list"
-        elif origin is dict:
-            return "dict"
-
-        return str(annotation).replace("typing.", "")
-
-    def _get_field_choices(self, field_info) -> list[str] | None:
-        """Get available choices for a field (for Literal/Enum/bool types)."""
-        annotation = field_info.annotation
-        origin = get_origin(annotation)
-
-        # Handle Optional types
-        if origin is type(None) or str(origin) == "typing.Union":
-            args = get_args(annotation)
-            non_none = [a for a in args if a is not type(None)]
-            if non_none:
-                annotation = non_none[0]
-                origin = get_origin(annotation)
-
-        # Handle Literal
-        if str(origin) == "typing.Literal":
-            return [str(c) for c in get_args(annotation)]
-
-        # Handle Enum
-        if isinstance(annotation, type) and issubclass(annotation, Enum):
-            return [str(e.value) for e in annotation]
-
-        # Handle bool
-        if annotation is bool:
-            return ["true", "false"]
-
-        return None
-
-    def _parse_value(self, field_info, value_str: str) -> Any:
-        """Parse a string value to the appropriate type for a field."""
-        annotation = field_info.annotation
-        origin = get_origin(annotation)
-
-        # Handle Optional types
-        if origin is type(None) or str(origin) == "typing.Union":
-            args = get_args(annotation)
-            non_none = [a for a in args if a is not type(None)]
-            if non_none:
-                annotation = non_none[0]
-                origin = get_origin(annotation)
-
-        # Handle Literal
-        if str(origin) == "typing.Literal":
-            choices = get_args(annotation)
-            # Try to match the value
-            for choice in choices:
-                if str(choice).lower() == value_str.lower():
-                    return choice
-            raise ValueError(f"Must be one of: {list(choices)}")
-
-        # Handle Enum
-        if isinstance(annotation, type) and issubclass(annotation, Enum):
-            for e in annotation:
-                if str(e.value).lower() == value_str.lower() or e.name.lower() == value_str.lower():
-                    return e
-            choices = [e.value for e in annotation]
-            raise ValueError(f"Must be one of: {choices}")
-
-        # Handle basic types
-        if annotation is bool:
-            if value_str.lower() in ("true", "1", "yes", "on"):
-                return True
-            elif value_str.lower() in ("false", "0", "no", "off"):
-                return False
-            raise ValueError("Must be true or false")
-        elif annotation is int:
-            return int(value_str)
-        elif annotation is float:
-            return float(value_str)
-        elif annotation is str:
-            return value_str
-
-        # For complex types, try JSON parsing
-        try:
-            return json.loads(value_str)
-        except json.JSONDecodeError:
-            return value_str
+        return get_settings_completions(self._settings, context)
 
     async def _cmd_settings(self, args: str = "") -> None:
         """Show or change settings."""
         response = self.conversation.add_bot_response()
-
-        if not self._settings:
-            response.error("No settings configured.")
-            return
-
-        parts = args.split(maxsplit=1)
-        field_name = parts[0] if parts else ""
-        new_value = parts[1] if len(parts) > 1 else ""
-
-        if not field_name:
-            # Show all settings
-            lines = ["**Settings:**\n"]
-            for name, field_info in self._settings.model_fields.items():
-                current = getattr(self._settings, name)
-                type_name = self._get_field_type_name(field_info)
-                desc = field_info.description or ""
-
-                # Format current value
-                if isinstance(current, Enum):
-                    current_str = current.value
-                else:
-                    current_str = repr(current)
-
-                lines.append(f"- `{name}` = {current_str}")
-                if desc:
-                    lines.append(f"  *{desc}*")
-                lines.append(f"  Type: {type_name}")
-                lines.append("")
-
-            lines.append("Use `/settings <field> <value>` to change a setting.")
-            response.complete("\n".join(lines))
-            return
-
-        # Check if field exists
-        if field_name not in self._settings.model_fields:
-            available = ", ".join(f"`{n}`" for n in self._settings.model_fields.keys())
-            response.error(f"Unknown setting `{field_name}`. Available: {available}")
-            return
-
-        field_info = self._settings.model_fields[field_name]
-
-        if not new_value:
-            # Show specific field details
-            current = getattr(self._settings, field_name)
-            type_name = self._get_field_type_name(field_info)
-            desc = field_info.description or "No description"
-            choices = self._get_field_choices(field_info)
-
-            if isinstance(current, Enum):
-                current_str = current.value
-            else:
-                current_str = repr(current)
-
-            lines = [
-                f"**{field_name}**\n",
-                f"Current value: {current_str}",
-                f"Type: {type_name}",
-                f"Description: {desc}",
-            ]
-            if choices:
-                lines.append(f"Choices: {', '.join(choices)}")
-            lines.append(f"\nUse `/settings {field_name} <value>` to change.")
-            response.complete("\n".join(lines))
-            return
-
-        # Change the setting
-        try:
-            parsed_value = self._parse_value(field_info, new_value)
-            old_value = getattr(self._settings, field_name)
-            setattr(self._settings, field_name, parsed_value)
-
-            # Notify callback
-            if self._on_settings_change:
-                self._on_settings_change(field_name, parsed_value)
-
-            if isinstance(parsed_value, Enum):
-                new_str = parsed_value.value
-            else:
-                new_str = repr(parsed_value)
-
-            response.info(f"Changed `{field_name}` to {new_str}")
-        except (ValueError, TypeError) as e:
-            response.error(f"Invalid value: {e}")
+        result = handle_settings_command(
+            self._settings,
+            args,
+            on_change=self._on_settings_change,
+        )
+        if result.is_error:
+            response.error(result.message)
+        else:
+            response.info(result.message)
 
     # -------------------------------------------------------------------------
     # Agent management
@@ -512,27 +304,12 @@ class ChatUI(App):
         if not filename:
             filename = "conversation.json"
 
-        data = []
-        for msg in self.conversation.messages:
-            if hasattr(msg, "content") and isinstance(msg.content, str):
-                data.append({"role": "user", "content": msg.content})
-            elif isinstance(msg, BotResponse):
-                entry = {"role": "assistant"}
-                if msg.response:
-                    entry["response"] = msg.response
-                if msg.token_usage:
-                    entry["token_usage"] = msg.token_usage
-                if msg.errors:
-                    entry["errors"] = [
-                        {"label": e.label, "detail": e.detail}
-                        for e in msg.errors
-                    ]
-                data.append(entry)
-
-        Path(filename).write_text(json.dumps(data, indent=2))
-
         response = self.conversation.add_bot_response()
-        response.complete(f"Conversation exported to `{filename}`")
+        try:
+            write_conversation_archive(self.conversation.messages, filename)
+            response.complete(f"Conversation exported to `{filename}`")
+        except OSError as e:
+            response.error(f"Failed to export conversation: {e}")
 
     async def _cmd_import(self, filename: str = "") -> None:
         """Import conversation from a file."""
@@ -540,7 +317,7 @@ class ChatUI(App):
             filename = "conversation.json"
 
         try:
-            data = json.loads(Path(filename).read_text())
+            data = read_conversation_archive(filename)
             self.conversation.clear()
 
             for msg in data:
@@ -561,7 +338,7 @@ class ChatUI(App):
         except FileNotFoundError:
             response = self.conversation.add_bot_response()
             response.error(f"File not found: `{filename}`")
-        except json.JSONDecodeError as e:
+        except ValueError as e:
             response = self.conversation.add_bot_response()
             response.error(f"Invalid JSON: {e}")
 
