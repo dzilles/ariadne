@@ -18,6 +18,7 @@ from .message import (
     ResponseState,
 )
 from .commands import Command
+from .message_display import ActivityAnimation, DisplayMode, wave_style
 
 
 class ActiveWorkItemHeader(Static):
@@ -180,12 +181,31 @@ class StatusWidget(Static):
         self.is_error = is_error
         self.is_success = is_success
         self.is_thinking = is_thinking
+        self._animation_phase = 0
+
+    def on_mount(self) -> None:
+        """Start active-message animation when configured."""
+        if self.is_thinking and self.status.animation == ActivityAnimation.WAVE:
+            self.set_interval(0.18, self._next_animation_frame)
+
+    def _next_animation_frame(self) -> None:
+        self._animation_phase += 1
+        self.refresh()
 
     def render(self) -> LinedContent | Text:
         """Render the status widget with continuous vertical line."""
         if self.is_thinking:
-            # For thinking, just return simple text (animation handled separately)
-            return Text("├● ", style="") + Text(self.status.label)
+            style = (
+                wave_style(self._animation_phase)
+                if self.status.animation == ActivityAnimation.WAVE
+                else "cyan"
+            )
+            text = Text("├● ", style=style)
+            text.append(self.status.label, style=style)
+            if self.status.detail:
+                text.append("  ")
+                text.append(self.status.detail, style=style)
+            return text
 
         # Determine style based on type
         if self.is_error:
@@ -265,8 +285,9 @@ class BotResponseWidget(Static):
 
         # Show tool results in chronological order
         for result in self.response.tool_results:
-            # In non-verbose mode, only show errors
-            if result.is_success and not self.verbose:
+            if result.mode == DisplayMode.HIDDEN:
+                continue
+            if result.mode == DisplayMode.VERBOSE and not self.verbose:
                 continue
             yield StatusWidget(result, is_error=result.is_error, is_success=result.is_success)
 

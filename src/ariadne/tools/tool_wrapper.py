@@ -214,7 +214,7 @@ def with_error_handling(func: Callable) -> Callable:
 
         if is_cancel_requested():
             result = f"[Tool Cancelled: {tool_name}] Run cancellation requested by user."
-            _notify_tool(tool_name, "error", kwargs, result)
+            _notify_tool(tool_name, "cancelled", tool_args, result)
             _audit_tool_call(tool_name, "cancelled", tool_args, result)
             return result
 
@@ -228,37 +228,42 @@ def with_error_handling(func: Callable) -> Callable:
         if approval_required:
             if not _request_approval_sync(
                 tool_name,
-                kwargs,
+                tool_args,
                 ignore_session_approval=(tool_name == "delegate_to_agent"),
             ):
-                result = f"[Tool Cancelled: {tool_name}] User rejected the operation."
-                _notify_tool(tool_name, "error", kwargs, result)
+                reason = (
+                    "Run cancellation requested by user."
+                    if is_cancel_requested()
+                    else "User rejected the operation."
+                )
+                result = f"[Tool Cancelled: {tool_name}] {reason}"
+                _notify_tool(tool_name, "cancelled", tool_args, result)
                 _audit_tool_call(tool_name, "cancelled", tool_args, result)
                 return result
 
         # Notify tool start
-        _notify_tool(tool_name, "start", kwargs, "")
+        _notify_tool(tool_name, "start", tool_args, "")
 
         try:
             if is_cancel_requested():
                 result = f"[Tool Cancelled: {tool_name}] Run cancellation requested by user."
-                _notify_tool(tool_name, "error", kwargs, result)
+                _notify_tool(tool_name, "cancelled", tool_args, result)
                 _audit_tool_call(tool_name, "cancelled", tool_args, result)
                 return result
             result = func(*args, **kwargs)
             # Check if result indicates an error
             result_str = str(result)
             if result_str.startswith("[Tool Error:"):
-                _notify_tool(tool_name, "error", kwargs, result_str)
+                _notify_tool(tool_name, "error", tool_args, result_str)
                 _audit_tool_call(tool_name, "error", tool_args, result_str)
             else:
-                _notify_tool(tool_name, "success", kwargs, result_str)
+                _notify_tool(tool_name, "success", tool_args, result_str)
                 _audit_tool_call(tool_name, "success", tool_args, result_str)
             return result
         except Exception as e:
             error_msg = f"[Tool Error: {tool_name}] {type(e).__name__}: {str(e)}"
             logger.error(error_msg)
-            _notify_tool(tool_name, "error", kwargs, error_msg)
+            _notify_tool(tool_name, "error", tool_args, error_msg)
             _audit_tool_call(tool_name, "error", tool_args, error_msg)
             return error_msg
 

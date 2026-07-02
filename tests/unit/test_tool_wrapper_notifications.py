@@ -3,6 +3,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from src.ariadne.runtime import run_manager
 from src.ariadne.tools import tool_wrapper
 
 
@@ -22,3 +23,75 @@ def test_notify_tool_emits_structured_notification(monkeypatch):
     assert notifications[0].status == "success"
     assert notifications[0].args == {"path": "a.txt"}
     assert notifications[0].result == "ok"
+
+
+def test_wrapped_tool_notification_serializes_positional_args(monkeypatch):
+    notifications = []
+    monkeypatch.setattr(tool_wrapper, "_tool_notify_callback", notifications.append)
+    monkeypatch.setattr(tool_wrapper, "_event_loop", ImmediateLoop())
+    monkeypatch.setattr(tool_wrapper, "_approval_callback", None)
+    monkeypatch.setattr(tool_wrapper, "_approval_enabled", False)
+
+    def read_file(file_path):
+        return f"read {file_path}"
+
+    wrapped = tool_wrapper.with_error_handling(read_file)
+
+    wrapped("README.md")
+
+    assert notifications[0].status == "start"
+    assert notifications[0].args == {"args": ["README.md"]}
+    assert notifications[1].status == "success"
+    assert notifications[1].args == {"args": ["README.md"]}
+
+
+def test_rejected_tool_approval_notifies_cancelled_and_returns_feedback(monkeypatch):
+    notifications = []
+    approval_requests = []
+    monkeypatch.setattr(tool_wrapper, "_tool_notify_callback", notifications.append)
+    monkeypatch.setattr(tool_wrapper, "_event_loop", ImmediateLoop())
+    monkeypatch.setattr(tool_wrapper, "_approval_callback", object())
+    monkeypatch.setattr(tool_wrapper, "_approval_enabled", True)
+    monkeypatch.setattr(tool_wrapper, "_auto_approve_session", False)
+
+    def reject_approval(tool_name, args, ignore_session_approval=False):
+        approval_requests.append((tool_name, args, ignore_session_approval))
+        return False
+
+    monkeypatch.setattr(tool_wrapper, "_request_approval_sync", reject_approval)
+
+    def read_file(file_path):
+        return f"read {file_path}"
+
+    wrapped = tool_wrapper.with_error_handling(read_file)
+
+    result = wrapped("README.md")
+
+    assert result == "[Tool Cancelled: read_file] User rejected the operation."
+    assert approval_requests == [("read_file", {"args": ["README.md"]}, False)]
+    assert notifications[0].status == "cancelled"
+    assert notifications[0].args == {"args": ["README.md"]}
+
+
+def test_cancel_requested_before_tool_notifies_cancelled(monkeypatch):
+    notifications = []
+    monkeypatch.setattr(tool_wrapper, "_tool_notify_callback", notifications.append)
+    monkeypatch.setattr(tool_wrapper, "_event_loop", ImmediateLoop())
+    monkeypatch.setattr(tool_wrapper, "_approval_callback", None)
+    monkeypatch.setattr(tool_wrapper, "_approval_enabled", False)
+    run = run_manager.start_run("Fake", "hello")
+    run_manager.request_cancel()
+
+    def read_file(file_path):
+        return f"read {file_path}"
+
+    try:
+        wrapped = tool_wrapper.with_error_handling(read_file)
+
+        result = wrapped("README.md")
+    finally:
+        run_manager.finish_run(run.id)
+
+    assert result == "[Tool Cancelled: read_file] Run cancellation requested by user."
+    assert notifications[0].status == "cancelled"
+    assert notifications[0].args == {"args": ["README.md"]}

@@ -218,7 +218,17 @@ async def _handle_message_events(
                     emit(RunEvent("response_delta", message=text))
             elif kind == "on_tool_start":
                 tool_name = name or "unknown"
-                emit(RunEvent("tool_start", tool_name=tool_name, detail="Running..."))
+                tool_args = event.get("data", {}).get("input")
+                if not isinstance(tool_args, dict):
+                    tool_args = {}
+                emit(
+                    RunEvent(
+                        "tool_start",
+                        tool_name=tool_name,
+                        detail="Running...",
+                        args=tool_args,
+                    )
+                )
             elif kind == "on_chain_end":
                 output = event.get("data", {}).get("output")
                 if isinstance(output, dict) and "messages" in output:
@@ -371,11 +381,9 @@ def _complete_from_history(
 def _apply_event_to_response(response: Any, event: RunEvent) -> None:
     """Apply a run event to the legacy response object."""
     if event.type == "run_started":
-        if hasattr(response, "activity"):
-            response.activity("Run", event.detail)
+        return
     elif event.type == "run_finished":
-        if hasattr(response, "activity"):
-            response.activity("Run", event.detail)
+        return
     elif event.type == "thinking":
         response.thinking(event.detail or event.message)
     elif event.type == "response_start":
@@ -383,6 +391,8 @@ def _apply_event_to_response(response: Any, event: RunEvent) -> None:
     elif event.type == "response_delta":
         response.append_response(event.message)
     elif event.type == "tool_start":
+        if hasattr(response, "activity"):
+            response.activity(f"Tool: {event.tool_name}", event.detail)
         response.tool(event.tool_name, event.detail)
     elif event.type == "token_usage" and event.usage:
         response.set_token_usage(event.usage.to_dict())

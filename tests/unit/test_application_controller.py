@@ -7,6 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import src.ariadne.application.controller as controller_module
 from src.ariadne.application.controller import AriadneApplicationController
 from src.ariadne.application.ui_contract import RunEvent, WorkItemInfo
+from src.ariadne.runtime import run_manager
 from src.ariadne.tools.tool_wrapper import ToolNotification
 
 
@@ -163,4 +164,34 @@ def test_handle_user_message_without_agent_emits_error_event():
 
     assert events == [
         RunEvent("error", message="No agent selected. Use /agent to select one.")
+    ]
+
+
+def test_handle_user_message_queues_when_run_is_active():
+    controller = AriadneApplicationController(
+        {"Fake": FakeAgent},
+        {"Fake": "fake agent"},
+        reset_session_approval_func=lambda: None,
+    )
+    events = []
+    run = run_manager.start_run("Fake", "active")
+
+    try:
+        asyncio.run(
+            controller.handle_user_message(
+                "queued",
+                emit=events.append,
+                is_cancelled=lambda: False,
+            )
+        )
+    finally:
+        run_manager.finish_run(run.id)
+
+    assert len(controller._message_queue) == 1
+    assert controller._message_queue[0].message == "queued"
+    assert events == [
+        RunEvent(
+            "queued",
+            detail="Queued. This message will run after the active request. Position: 1.",
+        )
     ]

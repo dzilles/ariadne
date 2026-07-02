@@ -18,6 +18,7 @@ RunEventType = Literal[
     "complete",
     "error",
     "cancelled",
+    "queued",
 ]
 
 
@@ -86,6 +87,7 @@ class RunEvent:
     tool_name: str = ""
     run_id: str = ""
     agent_name: str = ""
+    args: dict | None = None
     duration_seconds: float | None = None
     usage: TokenUsage | None = None
 

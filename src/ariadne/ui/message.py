@@ -4,6 +4,8 @@ from dataclasses import dataclass, field
 from enum import Enum, auto
 from typing import Callable
 
+from .message_display import ActivityAnimation, DisplayMode
+
 
 class ResponseState(Enum):
     """State of a bot response."""
@@ -22,6 +24,8 @@ class StatusLine:
     detail: str
     is_error: bool = False
     is_success: bool = False
+    mode: DisplayMode = DisplayMode.PERSISTENT
+    animation: ActivityAnimation = ActivityAnimation.NONE
 
 
 @dataclass
@@ -85,14 +89,25 @@ class BotResponse:
         self._notify_update()
         return self
 
-    def set_status(self, label: str, detail: str = "") -> "BotResponse":
+    def set_status(
+        self,
+        label: str,
+        detail: str = "",
+        *,
+        animation: ActivityAnimation = ActivityAnimation.NONE,
+    ) -> "BotResponse":
         """Set the dynamic status line (replaces previous status).
 
         Args:
             label: Status label (e.g., "Thinking", "Tool")
             detail: Status detail (e.g., "Analyzing request...")
         """
-        self.status = StatusLine(label=label, detail=detail)
+        self.status = StatusLine(
+            label=label,
+            detail=detail,
+            mode=DisplayMode.TRANSIENT,
+            animation=animation,
+        )
         self.state = ResponseState.THINKING
         self._notify_update()
         return self
@@ -104,6 +119,12 @@ class BotResponse:
             self._notify_update()
         return self
 
+    def clear_status(self) -> "BotResponse":
+        """Clear the active transient status line."""
+        self.status = None
+        self._notify_update()
+        return self
+
     def add_error(self, label: str, detail: str = "") -> "BotResponse":
         """Add a persistent error (stays visible).
 
@@ -111,7 +132,12 @@ class BotResponse:
             label: Error label (e.g., "Tool Failed")
             detail: Error detail (e.g., "Permission denied")
         """
-        status = StatusLine(label=label, detail=detail, is_error=True)
+        status = StatusLine(
+            label=label,
+            detail=detail,
+            is_error=True,
+            mode=DisplayMode.PERSISTENT,
+        )
         self.errors.append(status)
         self.tool_results.append(status)
         self._notify_update()
@@ -161,17 +187,42 @@ class BotResponse:
         return self
 
     # Convenience methods
-    def thinking(self, detail: str = "") -> "BotResponse":
+    def thinking(
+        self,
+        detail: str = "",
+        *,
+        animation: ActivityAnimation = ActivityAnimation.NONE,
+    ) -> "BotResponse":
         """Set status to thinking."""
-        return self.set_status("Thinking", detail)
+        return self.set_status("Thinking", detail, animation=animation)
 
-    def tool(self, name: str, detail: str = "") -> "BotResponse":
+    def tool(
+        self,
+        name: str,
+        detail: str = "",
+        *,
+        animation: ActivityAnimation = ActivityAnimation.NONE,
+    ) -> "BotResponse":
         """Set status to a tool call."""
-        return self.set_status(f"Tool: {name}", detail)
+        return self.set_status(f"Tool: {name}", detail, animation=animation)
 
-    def activity(self, label: str, detail: str = "") -> "BotResponse":
+    def activity(
+        self,
+        label: str,
+        detail: str = "",
+        *,
+        mode: DisplayMode = DisplayMode.PERSISTENT,
+        animation: ActivityAnimation = ActivityAnimation.NONE,
+    ) -> "BotResponse":
         """Add a visible activity line to the response timeline."""
-        status = StatusLine(label=label, detail=detail)
+        if mode == DisplayMode.HIDDEN:
+            return self
+        status = StatusLine(
+            label=label,
+            detail=detail,
+            mode=mode,
+            animation=animation,
+        )
         self.tool_results.append(status)
         self._notify_update()
         return self
@@ -187,7 +238,12 @@ class BotResponse:
             label: Success label (e.g., "Tool Completed")
             detail: Success detail (e.g., "Retrieved 5 items")
         """
-        status = StatusLine(label=label, detail=detail, is_success=True)
+        status = StatusLine(
+            label=label,
+            detail=detail,
+            is_success=True,
+            mode=DisplayMode.VERBOSE,
+        )
         self.successes.append(status)
         self.tool_results.append(status)
         self._notify_update()

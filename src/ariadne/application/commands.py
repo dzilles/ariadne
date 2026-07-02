@@ -16,5 +16,5 @@ APPLICATION_COMMANDS = [
     ApplicationCommandSpec("history", "Show history status for all agents"),
     ApplicationCommandSpec("clearhistory", "Clear saved history for current agent"),
     ApplicationCommandSpec("secret", "Manage API keys in secure vault", "[key] [value]"),
-    ApplicationCommandSpec("copy", "Copy last response to clipboard"),
+    ApplicationCommandSpec("copy", "Copy content to clipboard", "[last|all]"),
 ]

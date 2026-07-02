@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Literal
 from typing import Any
 
@@ -32,6 +33,13 @@ from .ui_contract import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class QueuedMessage:
+    message: str
+    emit: Callable[[RunEvent], None]
+    is_cancelled: Callable[[], bool]
 
 
 class AriadneApplicationController:
@@ -62,6 +70,8 @@ class AriadneApplicationController:
         self._tool_event_callback: Callable[[ToolEvent], None] | None = None
         self._active_work_item_callback: Callable[[WorkItemInfo | None], None] | None = None
         self._token_usage_callback: Callable[[TokenUsage], None] | None = None
+        self._message_queue: list[QueuedMessage] = []
+        self._draining_queue = False
 
     @property
     def current_agent_name(self) -> str | None:
@@ -223,6 +233,63 @@ class AriadneApplicationController:
         is_cancelled: Callable[[], bool],
     ) -> None:
         """Send a user message to the active agent and emit UI-neutral events."""
+        if self._should_queue_message():
+            self._queue_message(message, emit, is_cancelled)
+            return
+
+        await self._run_user_message(message, emit=emit, is_cancelled=is_cancelled)
+        await self._drain_message_queue()
+
+    def _should_queue_message(self) -> bool:
+        from src.ariadne.runtime import run_manager
+
+        return self._draining_queue or run_manager.get_active_run() is not None
+
+    def _queue_message(
+        self,
+        message: str,
+        emit: Callable[[RunEvent], None],
+        is_cancelled: Callable[[], bool],
+    ) -> None:
+        self._message_queue.append(QueuedMessage(message, emit, is_cancelled))
+        position = len(self._message_queue)
+        emit(
+            RunEvent(
+                "queued",
+                detail=(
+                    "Queued. This message will run after the active request. "
+                    f"Position: {position}."
+                ),
+            )
+        )
+
+    async def _drain_message_queue(self) -> None:
+        if self._draining_queue:
+            return
+
+        self._draining_queue = True
+        try:
+            while self._message_queue:
+                queued = self._message_queue.pop(0)
+                if queued.is_cancelled():
+                    queued.emit(RunEvent("cancelled", detail="Queued message cancelled."))
+                    continue
+                await self._run_user_message(
+                    queued.message,
+                    emit=queued.emit,
+                    is_cancelled=queued.is_cancelled,
+                )
+        finally:
+            self._draining_queue = False
+
+    async def _run_user_message(
+        self,
+        message: str,
+        *,
+        emit: Callable[[RunEvent], None],
+        is_cancelled: Callable[[], bool],
+    ) -> None:
+        """Run one user message immediately."""
         if self._current_agent:
             from .agent_runner import run_agent
 

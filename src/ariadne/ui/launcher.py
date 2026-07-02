@@ -18,7 +18,17 @@ from src.ariadne.application.ui_contract import (
     WorkItemInfo,
 )
 from src.ariadne.ui.commands import CommandRegistry, create_default_commands
+from src.ariadne.ui.conversation_archive import (
+    conversation_to_text,
+    last_bot_response_text,
+)
 from src.ariadne.infrastructure.logging import setup_logging
+from src.ariadne.ui.message_display import (
+    ActivityAnimation,
+    DisplayMode,
+    format_tool_call_detail,
+    tool_event_rule,
+)
 from src.ariadne.ui.run_renderer import render_run_event
 
 logger = logging.getLogger(__name__)
@@ -51,6 +61,7 @@ class AriadneTUI:
 
         self.settings = settings
         self.controller = AriadneApplicationController()
+        self._active_tool_response: BotResponse | None = None
 
         # Create Agent wrappers for UI
         agents = [
@@ -96,11 +107,11 @@ class AriadneTUI:
         # Message handler
         @self.ui.on_message
         async def on_message(message: str, response: BotResponse) -> None:
-            await tui.controller.handle_user_message(
-                message,
-                emit=lambda event: render_run_event(response, event),
-                is_cancelled=lambda: response.is_cancelled,
-            )
+            await tui._handle_user_message(message, response)
+
+        @self.ui.on_busy_message
+        async def on_busy_message(message: str, response: BotResponse) -> None:
+            await tui._handle_user_message(message, response)
 
         self.ui.on_cancel(self.controller.cancel_active_run)
 
@@ -112,6 +123,7 @@ class AriadneTUI:
         self.ui.commands.set_handler("secret", self._cmd_secret)
         self.ui.commands.set_completions("secret", self._get_secret_completions)
         self.ui.commands.set_handler("copy", self._cmd_copy)
+        self.ui.commands.set_completions("copy", ["last", "all"])
 
         self.controller.bind_runtime_callbacks(
             approval_callback=self.ui.request_tool_approval,
@@ -137,15 +149,31 @@ class AriadneTUI:
             if active_agent:
                 tui._switch_agent(active_agent)
 
+    async def _handle_user_message(self, message: str, response: BotResponse) -> None:
+        """Submit a user message to the application controller."""
+        def emit(event) -> None:
+            if event.type == "run_started":
+                self._active_tool_response = response
+            render_run_event(response, event)
+            if (
+                event.type in {"run_finished", "cancelled"}
+                and self._active_tool_response is response
+            ):
+                self._active_tool_response = None
+
+        try:
+            await self.controller.handle_user_message(
+                message,
+                emit=emit,
+                is_cancelled=lambda: response.is_cancelled,
+            )
+        finally:
+            if self._active_tool_response is response:
+                self._active_tool_response = None
+
     def _on_tool_event(self, event: ToolEvent) -> None:
         """Render tool execution events."""
-        # Find the current bot response (last one in conversation)
-        response = None
-        for msg in reversed(self.ui.conversation.messages):
-            if isinstance(msg, BotResponse):
-                response = msg
-                break
-
+        response = self._active_tool_response
         if not response:
             return
 
@@ -154,12 +182,40 @@ class AriadneTUI:
         if len(display_result) > 100:
             display_result = display_result[:100] + "..."
 
+        rule = tool_event_rule(event.status)
+        if rule.mode == DisplayMode.HIDDEN:
+            return
+
+        tool_detail = format_tool_call_detail(event.name, event.args)
         if event.status == "start":
-            response.tool(event.name, "Running...")
+            response.activity(
+                f"Tool: {event.name}",
+                tool_detail,
+                mode=rule.mode,
+                animation=rule.animation,
+            )
+            response.tool(event.name, tool_detail, animation=rule.animation)
         elif event.status == "success":
-            response.tool_success(event.name, display_result)
+            response.clear_status()
+            response.activity(
+                f"Tool: {event.name}",
+                display_result,
+                mode=rule.mode,
+                animation=rule.animation,
+            )
+            if self._active_tool_response is response and not response.is_cancelled:
+                response.thinking(
+                    "Processing tool result...",
+                    animation=ActivityAnimation.WAVE,
+                )
         elif event.status in {"error", "cancelled"}:
+            response.clear_status()
             response.tool_error(event.name, display_result)
+            if self._active_tool_response is response and not response.is_cancelled:
+                response.thinking(
+                    "Processing tool result...",
+                    animation=ActivityAnimation.WAVE,
+                )
 
     def _on_active_work_item_changed(self, work_item: WorkItemInfo | None) -> None:
         """Render active work item changes."""
@@ -266,24 +322,32 @@ class AriadneTUI:
         response = self.ui.conversation.add_bot_response()
         self._complete_command(response, self.controller.manage_secret(args))
 
-    async def _cmd_copy(self) -> None:
-        """Copy last response to clipboard."""
+    async def _cmd_copy(self, args: str = "") -> None:
+        """Copy response or conversation content to clipboard."""
         response = self.ui.conversation.add_bot_response()
+        mode = (args or "last").strip().lower()
 
-        # Find the last bot response with content
-        last_content = None
-        for msg in reversed(self.ui.conversation.messages):
-            if isinstance(msg, BotResponse) and msg.response:
-                last_content = msg.response
-                break
+        if mode not in {"last", "all"}:
+            self._report_error("Usage: /copy [last|all]", response, log=False)
+            return
 
-        if not last_content:
-            self._report_error("No response to copy.", response)
+        messages = self.ui.conversation.messages[:-1]
+        content = (
+            conversation_to_text(messages)
+            if mode == "all"
+            else last_bot_response_text(messages)
+        )
+        if not content:
+            self._report_error("No content to copy.", response, log=False)
             return
 
         try:
-            self.ui.copy_to_clipboard(last_content)
-            response.complete("Copied to clipboard.")
+            self.ui.copy_to_clipboard(content)
+            response.complete(
+                "Conversation copied to clipboard."
+                if mode == "all"
+                else "Last response copied to clipboard."
+            )
         except Exception as e:
             self._report_error(f"Failed to copy: {e}", response)
 

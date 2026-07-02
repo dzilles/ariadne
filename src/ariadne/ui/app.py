@@ -1,6 +1,11 @@
 """Main ChatUI application."""
 
 import asyncio
+import base64
+import os
+import shutil
+import subprocess
+import sys
 from dataclasses import dataclass
 from typing import Callable, Awaitable, Any
 
@@ -16,6 +21,7 @@ from src.ariadne.application.settings_commands import (
 from .message import Conversation, BotResponse
 from .commands import CommandRegistry, create_default_commands
 from .conversation_archive import (
+    conversation_to_text,
     read_conversation_archive,
     write_conversation_archive,
 )
@@ -24,6 +30,7 @@ from .widgets import ActiveWorkItemHeader, ChatInput, ConversationView, Approval
 
 # Type alias for message handlers
 MessageHandler = Callable[[str, BotResponse], Awaitable[None]]
+BusyMessageHandler = Callable[[str, BotResponse], Awaitable[None]]
 CancelHandler = Callable[[], bool]
 
 
@@ -51,6 +58,7 @@ class ChatUI(App):
 
     BINDINGS = [
         Binding("ctrl+c", "quit", "Quit", show=False),
+        Binding("ctrl+shift+c", "copy_conversation", "Copy conversation", show=False),
         Binding("escape", "abort", "Abort", show=False),
     ]
 
@@ -66,6 +74,7 @@ class ChatUI(App):
         self.conversation = Conversation()
         self.commands = commands or create_default_commands()
         self._message_handler: MessageHandler | None = None
+        self._busy_message_handler: BusyMessageHandler | None = None
         self._cancel_handler: CancelHandler | None = None
         self._current_task: asyncio.Task | None = None
         self._current_response: BotResponse | None = None
@@ -95,6 +104,16 @@ class ChatUI(App):
 
         # Set up built-in command handlers
         self._setup_builtin_commands()
+
+    @property
+    def current_response(self) -> BotResponse | None:
+        """Return the bot response currently owned by an active run."""
+        return self._current_response
+
+    @property
+    def is_run_active(self) -> bool:
+        """Return True while a message handler task is active."""
+        return bool(self._current_task and not self._current_task.done())
 
     def _setup_builtin_commands(self) -> None:
         """Set up handlers for built-in commands."""
@@ -342,6 +361,56 @@ class ChatUI(App):
             response = self.conversation.add_bot_response()
             response.error(f"Invalid JSON: {e}")
 
+    def copy_to_clipboard(self, text: str) -> None:
+        """Copy text to the system clipboard."""
+        if not text:
+            raise ValueError("Nothing to copy.")
+
+        command = self._clipboard_command()
+        if command:
+            subprocess.run(
+                command,
+                input=text,
+                text=True,
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            return
+
+        # OSC52 works in many terminal emulators and over SSH/tmux setups.
+        encoded = base64.b64encode(text.encode("utf-8")).decode("ascii")
+        sys.stdout.write(f"\033]52;c;{encoded}\a")
+        sys.stdout.flush()
+
+    def _clipboard_command(self) -> list[str] | None:
+        """Return the first available clipboard command for this platform."""
+        candidates: list[list[str]]
+        if sys.platform == "darwin":
+            candidates = [["pbcopy"]]
+        elif os.name == "nt":
+            candidates = [["clip"]]
+        else:
+            candidates = [
+                ["wl-copy"],
+                ["xclip", "-selection", "clipboard"],
+                ["xsel", "--clipboard", "--input"],
+            ]
+
+        for command in candidates:
+            if shutil.which(command[0]):
+                return command
+        return None
+
+    def action_copy_conversation(self) -> None:
+        """Copy the current conversation transcript."""
+        response = self.conversation.add_bot_response()
+        try:
+            self.copy_to_clipboard(conversation_to_text(self.conversation.messages[:-1]))
+            response.complete("Conversation copied to clipboard.")
+        except Exception as e:
+            response.error(f"Failed to copy conversation: {e}")
+
     def on_message(
         self,
         handler: MessageHandler,
@@ -355,6 +424,14 @@ class ChatUI(App):
                 response.complete("Done!")
         """
         self._message_handler = handler
+        return handler
+
+    def on_busy_message(
+        self,
+        handler: BusyMessageHandler,
+    ) -> BusyMessageHandler:
+        """Register a handler for input submitted while another run is active."""
+        self._busy_message_handler = handler
         return handler
 
     def on_cancel(self, handler: CancelHandler) -> CancelHandler:
@@ -436,44 +513,70 @@ class ChatUI(App):
         # Refocus input
         self._focus_input()
 
-    def action_abort(self) -> None:
-        """Abort the current operation."""
-        # Don't abort if approval dialog is visible (escape dismisses dialog instead)
+    def _reject_pending_approval(self) -> bool:
+        """Reject a visible approval dialog and unblock the waiting tool call."""
         try:
             dialog = self.query_one(ApprovalDialog)
-            if dialog.has_class("visible"):
-                return
+            if not dialog.has_class("visible"):
+                return False
+            dialog.hide()
         except Exception:
-            pass
+            return False
 
+        self._approval_result = "no"
+        if self._pending_approval_event:
+            self._pending_approval_event.set()
+        return True
+
+    def action_abort(self) -> None:
+        """Abort the current operation."""
+        approval_rejected = self._reject_pending_approval()
         if self._current_task and not self._current_task.done():
             if self._cancel_handler:
                 self._cancel_handler()
             if self._current_response:
                 self._current_response.cancel()
+        elif approval_rejected and self._cancel_handler:
+            self._cancel_handler()
         self._focus_input()
 
     async def on_chat_input_submitted(self, event: ChatInput.Submitted) -> None:
         """Handle message submission."""
         if self._current_task and not self._current_task.done():
-            self.conversation.add_user_message(event.value)
-            response = self.conversation.add_bot_response()
-            response.info(
-                "A run is already active. Press `Escape` to request cancellation, "
-                "then wait for the current step to stop before sending a new message."
-            )
+            await self._handle_busy_message(event.value)
             self._focus_input()
             return
 
-        self.conversation.add_user_message(event.value)
+        self._start_message_run(event.value)
+        self._focus_input()
+
+    async def _handle_busy_message(self, message: str) -> None:
+        """Forward busy-time input to the application layer."""
+        self.conversation.add_user_message(message)
+        response = self.conversation.add_bot_response()
+        if not self._busy_message_handler:
+            response.error("No busy message handler configured.")
+            return
+        try:
+            await self._busy_message_handler(message, response)
+        except Exception as e:
+            if not response.is_cancelled:
+                response.error(str(e))
+
+    def _start_message_run(self, message: str, *, add_user_message: bool = True) -> None:
+        """Create a bot response and start handling a user message."""
+        if add_user_message:
+            self.conversation.add_user_message(message)
         response = self.conversation.add_bot_response()
 
-        if self._message_handler:
-            self._current_response = response
-            self._current_task = asyncio.create_task(
-                self._run_handler(event.value, response)
-            )
-        self._focus_input()
+        if not self._message_handler:
+            response.error("No message handler configured.")
+            return
+
+        self._current_response = response
+        self._current_task = asyncio.create_task(
+            self._run_handler(message, response)
+        )
 
     async def _run_handler(self, message: str, response: BotResponse) -> None:
         """Run the message handler with cancellation support."""
