@@ -19,6 +19,7 @@ from src.ariadne.application.ui_contract import (
 )
 from src.ariadne.ui.commands import CommandRegistry, create_default_commands
 from src.ariadne.infrastructure.logging import setup_logging
+from src.ariadne.ui.run_renderer import render_run_event
 
 logger = logging.getLogger(__name__)
 
@@ -95,7 +96,11 @@ class AriadneTUI:
         # Message handler
         @self.ui.on_message
         async def on_message(message: str, response: BotResponse) -> None:
-            await tui.controller.handle_user_message(message, response)
+            await tui.controller.handle_user_message(
+                message,
+                emit=lambda event: render_run_event(response, event),
+                is_cancelled=lambda: response.is_cancelled,
+            )
 
         self.ui.on_cancel(self.controller.cancel_active_run)
 

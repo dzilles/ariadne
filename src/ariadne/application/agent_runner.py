@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import Any
 
@@ -121,13 +122,14 @@ async def _handle_message_streaming(
         return result, start_index
 
     try:
-        task = main_loop.run_in_executor(None, run_agent_sync)
-        while not task.done():
-            if is_cancelled():
-                run_manager.request_cancel()
-            await asyncio.sleep(0.1)
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            task = main_loop.run_in_executor(executor, run_agent_sync)
+            while not task.done():
+                if is_cancelled():
+                    run_manager.request_cancel()
+                await asyncio.sleep(0.1)
 
-        result, start_index = task.result()
+            result, start_index = task.result()
 
         if "messages" in result:
             agent.chat_history = result["messages"]
@@ -264,14 +266,15 @@ async def _handle_message_sync(
 
     try:
         start_index = len(getattr(agent, "chat_history", []))
-        task = main_loop.run_in_executor(None, agent.chat, message)
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            task = main_loop.run_in_executor(executor, agent.chat, message)
 
-        while not task.done():
-            if is_cancelled():
-                run_manager.request_cancel()
-            await asyncio.sleep(0.1)
+            while not task.done():
+                if is_cancelled():
+                    run_manager.request_cancel()
+                await asyncio.sleep(0.1)
 
-        result = task.result()
+            result = task.result()
         usage = extract_token_usage(getattr(agent, "chat_history", [])[start_index:])
         _emit_usage(emit, usage)
 

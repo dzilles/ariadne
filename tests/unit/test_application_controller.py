@@ -1,3 +1,4 @@
+import asyncio
 import sys
 from pathlib import Path
 
@@ -7,7 +8,6 @@ import src.ariadne.application.controller as controller_module
 from src.ariadne.application.controller import AriadneApplicationController
 from src.ariadne.application.ui_contract import RunEvent, WorkItemInfo
 from src.ariadne.tools.tool_wrapper import ToolNotification
-from src.ariadne.ui.message import BotResponse
 
 
 class FakeAgent:
@@ -145,36 +145,22 @@ def test_token_usage_translation_uses_contract_type():
     assert usages[0].total_tokens == 24
 
 
-def test_run_event_adds_visible_activity_line():
+def test_handle_user_message_without_agent_emits_error_event():
     controller = AriadneApplicationController(
         {"Fake": FakeAgent},
         {"Fake": "fake agent"},
         reset_session_approval_func=lambda: None,
     )
-    response = BotResponse()
+    events = []
 
-    controller._apply_run_event(
-        response,
-        RunEvent("thinking", detail="Model request started..."),
+    asyncio.run(
+        controller.handle_user_message(
+            "hello",
+            emit=events.append,
+            is_cancelled=lambda: False,
+        )
     )
 
-    assert response.tool_results[0].label == "Model"
-    assert response.tool_results[0].detail == "Model request started..."
-    assert response.status.label == "Thinking"
-
-
-def test_run_finished_event_adds_visible_activity_line():
-    controller = AriadneApplicationController(
-        {"Fake": FakeAgent},
-        {"Fake": "fake agent"},
-        reset_session_approval_func=lambda: None,
-    )
-    response = BotResponse()
-
-    controller._apply_run_event(
-        response,
-        RunEvent("run_finished", detail="Finished in 1.2s", duration_seconds=1.2),
-    )
-
-    assert response.tool_results[0].label == "Run"
-    assert response.tool_results[0].detail == "Finished in 1.2s"
+    assert events == [
+        RunEvent("error", message="No agent selected. Use /agent to select one.")
+    ]
