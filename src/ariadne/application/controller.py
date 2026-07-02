@@ -175,25 +175,20 @@ class AriadneApplicationController:
 
         return run_manager.request_cancel() is not None
 
-    def _handle_tool_notify(
-        self,
-        tool_name: str,
-        status: str,
-        args: dict,
-        result: str,
-    ) -> None:
+    def _handle_tool_notify(self, notification: Any) -> None:
         """Translate raw tool-wrapper notifications into application events."""
         normalized_status: Literal["start", "success", "error", "cancelled"]
+        status = getattr(notification, "status", "error")
         if status in {"start", "success", "error", "cancelled"}:
             normalized_status = status
         else:
             normalized_status = "error"
 
         event = ToolEvent(
-            name=tool_name,
+            name=getattr(notification, "name", "unknown"),
             status=normalized_status,
-            args=args,
-            result=result,
+            args=getattr(notification, "args", {}),
+            result=getattr(notification, "result", ""),
         )
         if self._tool_event_callback:
             self._tool_event_callback(event)

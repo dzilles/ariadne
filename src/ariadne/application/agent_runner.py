@@ -7,8 +7,6 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
-from langchain_core.messages import AIMessage, HumanMessage
-
 from src.ariadne.runtime import run_manager
 from src.ariadne.runtime.token_usage import (
     extract_token_usage,
@@ -114,6 +112,8 @@ async def _handle_message_streaming(
         return
 
     def run_agent_sync():
+        from langchain_core.messages import HumanMessage
+
         start_index = len(agent.chat_history)
         agent.chat_history.append(HumanMessage(content=message))
         inputs = {"messages": agent.chat_history}
@@ -159,6 +159,8 @@ async def _handle_message_streaming(
     except asyncio.CancelledError:
         pass
     except Exception as e:
+        from langchain_core.messages import AIMessage
+
         error_msg = f"[System Error: {str(e)}]"
         agent.chat_history.append(AIMessage(content=error_msg))
         emit(RunEvent("error", message=f"Agent error: {str(e)}"))
@@ -171,6 +173,8 @@ async def _handle_message_events(
     is_cancelled: Callable[[], bool],
 ) -> None:
     """Handle an agent through LangGraph events so cancellation is prompt."""
+    from langchain_core.messages import HumanMessage
+
     start_index = len(agent.chat_history)
     agent.chat_history.append(HumanMessage(content=message))
     inputs = {"messages": agent.chat_history}
@@ -238,6 +242,8 @@ async def _handle_message_events(
     except asyncio.CancelledError:
         pass
     except Exception as e:
+        from langchain_core.messages import AIMessage
+
         error_msg = f"[System Error: {str(e)}]"
         agent.chat_history.append(AIMessage(content=error_msg))
         emit(RunEvent("error", message=f"Agent error: {str(e)}"))

@@ -4,17 +4,29 @@ import functools
 import logging
 import asyncio
 import queue
-from typing import Callable, Any, Optional
+from dataclasses import dataclass
+from typing import Callable, Any, Optional, Literal
 
-from src.ariadne.config.settings import settings
 from src.ariadne.runtime.context import get_active_work_item_id
 from src.ariadne.runtime.run_manager import is_cancel_requested
 
 logger = logging.getLogger(__name__)
 
+ToolNotificationStatus = Literal["start", "success", "error", "cancelled"]
+
+
+@dataclass(frozen=True)
+class ToolNotification:
+    """Structured notification emitted by wrapped tools."""
+
+    name: str
+    status: ToolNotificationStatus
+    args: dict
+    result: str = ""
+
 # Global approval state
 _approval_callback: Optional[Callable[[str, dict], Any]] = None
-_tool_notify_callback: Optional[Callable[[str, str, dict, str], None]] = None  # (tool_name, status, args, result)
+_tool_notify_callback: Optional[Callable[[ToolNotification], None]] = None
 _event_loop: Optional[asyncio.AbstractEventLoop] = None
 _approval_enabled: bool = True
 _auto_approve_session: bool = False
@@ -33,23 +45,28 @@ def set_approval_callback(callback: Callable[[str, dict], Any], loop: asyncio.Ab
     _event_loop = loop
 
 
-def set_tool_notify_callback(callback: Callable[[str, str, dict, str], None]) -> None:
+def set_tool_notify_callback(callback: Callable[[ToolNotification], None]) -> None:
     """Set callback to notify about tool execution.
 
     Args:
-        callback: Function that takes (tool_name, status, args, result)
-                  status is "start", "success", or "error"
+        callback: Function that takes a ToolNotification.
     """
     global _tool_notify_callback
     _tool_notify_callback = callback
 
 
-def _notify_tool(tool_name: str, status: str, args: dict, result: str = "") -> None:
+def _notify_tool(
+    tool_name: str,
+    status: ToolNotificationStatus,
+    args: dict,
+    result: str = "",
+) -> None:
     """Notify about tool execution via callback."""
     if _tool_notify_callback and _event_loop:
+        notification = ToolNotification(tool_name, status, args, result)
         try:
             _event_loop.call_soon_threadsafe(
-                lambda: _tool_notify_callback(tool_name, status, args, result)
+                lambda: _tool_notify_callback(notification)
             )
         except Exception as e:
             logger.debug(f"Tool notify error: {e}")
@@ -82,6 +99,8 @@ def _json_safe(value: Any) -> Any:
 
 
 def _is_tool_audited(tool_name: str, status: str) -> bool:
+    from src.ariadne.config.settings import settings
+
     if not settings.tool_audit_enabled:
         return False
 
@@ -102,6 +121,7 @@ def _audit_tool_call(tool_name: str, status: str, args: dict, result: str = "") 
         return
 
     try:
+        from src.ariadne.config.settings import settings
         from src.ariadne.infrastructure.container import DependencyRegistry
 
         max_chars = max(0, settings.tool_audit_result_max_chars)

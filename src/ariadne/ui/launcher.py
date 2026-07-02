@@ -18,7 +18,6 @@ from src.ariadne.application.ui_contract import (
     WorkItemInfo,
 )
 from src.ariadne.ui.commands import CommandRegistry, create_default_commands
-from src.ariadne.config.settings import settings
 from src.ariadne.infrastructure.logging import setup_logging
 
 logger = logging.getLogger(__name__)
@@ -47,6 +46,9 @@ class AriadneTUI:
         # Set up logging
         setup_logging()
         configure_logging()
+        from src.ariadne.config.settings import settings
+
+        self.settings = settings
         self.controller = AriadneApplicationController()
 
         # Create Agent wrappers for UI
@@ -66,7 +68,7 @@ class AriadneTUI:
             title="Ariadne",
             commands=commands,
             agents=agents,
-            settings=settings,
+            settings=self.settings,
         )
 
         # Register event handlers
@@ -111,7 +113,7 @@ class AriadneTUI:
             tool_event_callback=self._on_tool_event,
             active_work_item_callback=self._on_active_work_item_changed,
             token_usage_callback=self._on_active_work_item_token_usage,
-            tool_approval_enabled=settings.tool_approval,
+            tool_approval_enabled=self.settings.tool_approval,
         )
 
         # Settings change handler - persist and reinitialize agents

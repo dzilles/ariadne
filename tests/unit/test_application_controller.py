@@ -6,6 +6,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import src.ariadne.application.controller as controller_module
 from src.ariadne.application.controller import AriadneApplicationController
 from src.ariadne.application.ui_contract import RunEvent, WorkItemInfo
+from src.ariadne.tools.tool_wrapper import ToolNotification
 from src.ariadne.ui.message import BotResponse
 
 
@@ -95,7 +96,9 @@ def test_tool_event_translation_refreshes_active_work_item(monkeypatch):
         lambda: WorkItemInfo("7", "Demo", "In Progress"),
     )
 
-    controller._handle_tool_notify("list_work_items", "success", {"limit": 5}, "ok")
+    controller._handle_tool_notify(
+        ToolNotification("list_work_items", "success", {"limit": 5}, "ok")
+    )
 
     assert tool_events[0].name == "list_work_items"
     assert tool_events[0].status == "success"
