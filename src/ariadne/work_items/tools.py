@@ -310,8 +310,21 @@ class WorkItemTools:
                 f"- Base commit: {work_item.base_commit or 'Not set'}",
                 f"- Relevant commits: {', '.join(work_item.commit_hashes) if work_item.commit_hashes else 'None'}",
                 "",
-                "Recent context:",
+                "Artifacts:",
             ]
+
+            if work_item.artifacts:
+                for artifact in work_item.artifacts:
+                    type_label = f" [{artifact.type}]" if artifact.type and artifact.type != "link" else ""
+                    source = f" from agent run #{artifact.agent_run_id}" if artifact.agent_run_id else ""
+                    lines.append(f"- {artifact.title}{type_label}: {artifact.url}{source}")
+            else:
+                lines.append("No artifacts recorded.")
+
+            lines.extend([
+                "",
+                "Recent context:",
+            ])
 
             recent_entries = context_entries[-max_entries:]
             if recent_entries:

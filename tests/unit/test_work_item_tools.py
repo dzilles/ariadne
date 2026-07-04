@@ -1,6 +1,7 @@
 from src.ariadne.work_items.models import (
     AgentRun,
     AgentRunStatus,
+    ArtifactLink,
     ContextEntry,
     WorkItem,
     WorkItemType,
@@ -61,6 +62,15 @@ class FakeWorkItemStore:
             type=WorkItemType.TASK,
             assignees=[],
             comments=[],
+            artifacts=[
+                ArtifactLink(
+                    id="5",
+                    title="Requirement",
+                    url="docs/requirements/REQ-1.md",
+                    type="requirement",
+                    agent_run_id="98",
+                )
+            ],
         )
 
     def list_context_entries(self, work_item_id):
@@ -135,5 +145,6 @@ def test_get_context_bundle_combines_work_item_context_and_agent_runs():
 
     assert "Work item #7: Demo work item" in result
     assert "Target agent: Tester" in result
+    assert "Requirement [requirement]: docs/requirements/REQ-1.md from agent run #98" in result
     assert "Implemented service changes." in result
     assert "#99 Developer [SUCCESS]: Implementation complete." in result
