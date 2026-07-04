@@ -1,6 +1,7 @@
 import logging
 from src.ariadne.agents.base_agent import BaseAgent
 from src.ariadne.tools.file_tools import FileAgentTools
+from src.ariadne.policies.registry import build_agent_tools, build_tool_docs
 from src.ariadne.tools.tool_wrapper import wrap_tools_with_error_handling
 from src.ariadne.infrastructure.container import DependencyRegistry
 
@@ -26,29 +27,14 @@ class OrchestratorAgent(BaseAgent):
         self.update_work_item = self.ticket_tools.update_status
         self.add_comment = self.ticket_tools.post_comment
 
-        self.tools = wrap_tools_with_error_handling([
-            self.ticket_tools.list_work_items,
-            self.get_ticket_details,
-            self.ticket_tools.get_work_item_info,
-            self.ticket_tools.activate_work_item,
-            self.update_work_item,
-            self.add_comment,
-            self.ticket_tools.approve_gate,
-            self.ticket_tools.reject_gate,
-            self.ticket_tools.add_link,
-            self.ticket_tools.append_shared_context,
-            self.ticket_tools.update_git_metadata,
-            self.file_tools.read_file,
-            self.file_tools.list_files,
-            self.delegate_to_agent
-        ])
+        raw_tools = build_agent_tools(
+            "Orchestrator",
+            [self.ticket_tools, self.file_tools],
+            extra_tools={"delegate_to_agent": self.delegate_to_agent},
+        )
+        self.tools = wrap_tools_with_error_handling(raw_tools)
 
-        self.tool_docs = "\n".join([
-            self.ticket_tools.get_tool_descriptions(include_context_writer=True),
-            self.file_tools.get_tool_descriptions(),
-            "### Orchestration Tools",
-            "* `delegate_to_agent(agent_name, work_item_id, task_description)`: Delegates a specific work item to a specialized agent."
-        ])
+        self.tool_docs = build_tool_docs(raw_tools)
 
         self._init_executor(self.tools, self._get_system_message())
 
@@ -145,7 +131,7 @@ When using `delegate_to_agent`, you MUST structure your `task_description` as fo
 1. **Goal:** Clear statement of the desired outcome.
 2. **Knowledge Summary:** Summarize what you already know (e.g., from comments or previous steps) so the agent doesn't have to re-discover it.
 3. **Primary Manifests (Discovery-by-Query):** List the EXACT files or directories the agent should examine. 
-    *   **Crucial:** If this is a refinement task (updating an existing requirement or design), you MUST discover the existing file path first. Do this by either checking the `Links` attached to the parent work item using `get_work_item`, or using `search_files` based on keywords. Do NOT assume the file is named after the work item ID. Provide the discovered file path here.
+    *   **Crucial:** If this is a refinement task (updating an existing requirement or design), you MUST discover the existing file path first. Do this by checking the `Links` attached to the parent work item using `get_work_item`, or by listing likely artifact directories with `list_files`. Do NOT assume the file is named after the work item ID. Provide the discovered file path here.
     *   Tell them: "Your primary context is in [Files]. You should prioritize these. If you identify a dependency outside this list, you may explore it, but you MUST state your reasoning in your 'Thought'."
 4. **Expected Artifact:** Define the expected outcome (e.g., "Updated docs/requirements/REQ-005.md and attached to the work item via add_link").
 

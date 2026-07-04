@@ -1,6 +1,7 @@
 import logging
 from src.ariadne.agents.base_agent import BaseAgent
 from src.ariadne.tools.file_tools import FileAgentTools
+from src.ariadne.policies.registry import build_agent_tools, build_tool_docs
 from src.ariadne.tools.tool_wrapper import wrap_tools_with_error_handling
 from src.ariadne.infrastructure.container import DependencyRegistry
 
@@ -26,20 +27,10 @@ class QualityAssuranceAgent(BaseAgent):
         self.update_ticket = self.ticket_tools.update_status
         self.add_comment = self.ticket_tools.post_comment
 
-        self.tools = wrap_tools_with_error_handling([
-            self.get_ticket_details,
-            self.file_tools.read_file,
-            self.file_tools.list_files,
-            self.file_tools.search_files,
-            self.file_tools.write_file,
-            self.add_comment,
-            self.update_ticket
-        ])
+        raw_tools = build_agent_tools("QA", [self.ticket_tools, self.file_tools])
+        self.tools = wrap_tools_with_error_handling(raw_tools)
 
-        self.tool_docs = "\n".join([
-            self.ticket_tools.get_tool_descriptions(),
-            self.file_tools.get_tool_descriptions()
-        ])
+        self.tool_docs = build_tool_docs(raw_tools)
 
         self._init_executor(self.tools, self._get_system_message())
 

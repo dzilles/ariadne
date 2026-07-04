@@ -2,6 +2,7 @@ import logging
 from src.ariadne.agents.base_agent import BaseAgent
 from src.ariadne.tools.file_tools import FileAgentTools
 from src.ariadne.tools.git_tools import GitAgentTools
+from src.ariadne.policies.registry import build_agent_tools, build_tool_docs
 from src.ariadne.tools.tool_wrapper import wrap_tools_with_error_handling
 from src.ariadne.infrastructure.container import DependencyRegistry
 
@@ -29,31 +30,13 @@ class ArchitectAgent(BaseAgent):
         self.add_comment = self.ticket_tools.post_comment
         self.add_link = self.ticket_tools.add_link
 
-        self.tools = wrap_tools_with_error_handling([
-            self.get_ticket_details,
-            self.update_ticket,
-            self.add_comment,
-            self.add_link,
-            self.ticket_tools.add_commit_hash,
-            self.ticket_tools.update_git_metadata,
-            self.ticket_tools.approve_gate,
-            self.ticket_tools.reject_gate,
-            self.file_tools.read_file,
-            self.file_tools.list_files,
-            self.file_tools.search_files,
-            self.file_tools.write_file,
-            self.git_tools.get_status,
-            self.git_tools.get_current_branch,
-            self.git_tools.create_branch,
-            self.git_tools.add_files,
-            self.git_tools.commit_changes
-        ])
+        raw_tools = build_agent_tools(
+            "Architect",
+            [self.ticket_tools, self.file_tools, self.git_tools],
+        )
+        self.tools = wrap_tools_with_error_handling(raw_tools)
 
-        self.tool_docs = "\n".join([
-            self.ticket_tools.get_tool_descriptions(),
-            self.file_tools.get_tool_descriptions(),
-            self.git_tools.get_tool_descriptions()
-        ])
+        self.tool_docs = build_tool_docs(raw_tools)
 
         self._init_executor(self.tools, self._get_system_message())
 
