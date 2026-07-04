@@ -65,3 +65,29 @@ def test_append_shared_context_keeps_structured_context_in_sync(tmp_path):
     assert entries[0].author == "Architect"
     assert entries[0].kind == "handoff"
     assert entries[0].content == "Use the existing parser."
+
+
+def test_sqlite_store_persists_typed_artifact_metadata(tmp_path):
+    store = SQLiteWorkItemStore(str(tmp_path / "ariadne.db"))
+    work_item_id = store.create_work_item("Demo", "Description", WorkItemType.TASK, "Medium")
+    run_id = store.start_agent_run(work_item_id, "Requirements", "Write requirements")
+
+    store.add_artifact_link(
+        work_item_id,
+        "Requirement",
+        "docs/requirements/REQ-1.md",
+        artifact_type="requirement",
+        agent_run_id=run_id,
+        metadata={"phase": "analysis", "stable_id": "REQ-1"},
+    )
+
+    work_item = store.get_work_item(work_item_id)
+
+    assert len(work_item.artifacts) == 1
+    artifact = work_item.artifacts[0]
+    assert artifact.title == "Requirement"
+    assert artifact.url == "docs/requirements/REQ-1.md"
+    assert artifact.type == "requirement"
+    assert artifact.agent_run_id == run_id
+    assert artifact.metadata == {"phase": "analysis", "stable_id": "REQ-1"}
+    assert artifact.created_at

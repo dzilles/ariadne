@@ -28,8 +28,13 @@ class GateStatus(str, Enum):
     REJECTED = "Rejected"
 
 class ArtifactLink(BaseModel):
+    id: str = ""
     title: str
     url: str
+    type: str = "link"
+    agent_run_id: str = ""
+    created_at: str = ""
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 class Comment(BaseModel):
     id: str
@@ -149,7 +154,16 @@ class WorkItemStore(ABC):
         pass
 
     @abstractmethod
-    def add_artifact_link(self, work_item_id: str, title: str, url: str, comment: str = None) -> None:
+    def add_artifact_link(
+        self,
+        work_item_id: str,
+        title: str,
+        url: str,
+        comment: str = None,
+        artifact_type: str = "link",
+        agent_run_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
         """Add a link to an external artifact (file, doc, etc) and optionally post a comment."""
         pass
 

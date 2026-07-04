@@ -12,8 +12,17 @@ class FakeWorkItemTools:
         self.commit_hashes.append((work_item_id, commit_hash))
         return "ok"
 
-    def add_link(self, work_item_id, title, url):
-        self.links.append((work_item_id, title, url))
+    def add_link(
+        self,
+        work_item_id,
+        title,
+        url,
+        comment=None,
+        artifact_type="link",
+        agent_run_id=None,
+        metadata=None,
+    ):
+        self.links.append((work_item_id, title, url, artifact_type, agent_run_id, metadata or {}))
         return "ok"
 
 
@@ -91,8 +100,8 @@ def test_apply_agent_run_to_work_item_records_new_commit_and_artifacts():
     completion = {
         "status": "SUCCESS",
         "artifacts": [
-            {"title": "Spec", "url": "docs/spec.md"},
-            {"name": "Design", "path": "docs/design.md"},
+            {"title": "Spec", "url": "docs/spec.md", "type": "requirement", "phase": "analysis"},
+            {"name": "Design", "path": "docs/design.md", "type": "design"},
         ],
     }
     evidence = {
@@ -100,12 +109,12 @@ def test_apply_agent_run_to_work_item_records_new_commit_and_artifacts():
         "latest_commit": "def456",
     }
 
-    agent._apply_agent_run_to_work_item("7", completion, evidence)
+    agent._apply_agent_run_to_work_item("7", completion, evidence, agent_run_id="99")
 
     assert tools.commit_hashes == [("7", "def456")]
     assert tools.links == [
-        ("7", "Spec", "docs/spec.md"),
-        ("7", "Design", "docs/design.md"),
+        ("7", "Spec", "docs/spec.md", "requirement", "99", {"phase": "analysis"}),
+        ("7", "Design", "docs/design.md", "design", "99", {}),
     ]
 
 

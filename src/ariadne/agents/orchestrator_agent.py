@@ -257,7 +257,12 @@ class OrchestratorAgent(BaseAgent):
                 completion,
                 evidence,
             )
-            self._apply_agent_run_to_work_item(work_item_id, completion, evidence)
+            self._apply_agent_run_to_work_item(
+                work_item_id,
+                completion,
+                evidence,
+                agent_run_id=agent_run_id,
+            )
             self._append_agent_handoff_context(
                 work_item_id,
                 agent_name,
@@ -285,6 +290,7 @@ class OrchestratorAgent(BaseAgent):
         work_item_id: str,
         completion: dict,
         evidence: dict,
+        agent_run_id: str | None = None,
     ) -> None:
         if completion.get("status") != "SUCCESS":
             return
@@ -299,16 +305,23 @@ class OrchestratorAgent(BaseAgent):
             normalized = self._normalize_artifact_link(artifact)
             if not normalized:
                 continue
-            title, url = normalized
-            result = self.ticket_tools.add_link(work_item_id, title, url)
+            title, url, artifact_type, metadata = normalized
+            result = self.ticket_tools.add_link(
+                work_item_id,
+                title,
+                url,
+                artifact_type=artifact_type,
+                agent_run_id=agent_run_id,
+                metadata=metadata,
+            )
             logger.info("Artifact link update result for work item #%s: %s", work_item_id, result)
 
-    def _normalize_artifact_link(self, artifact) -> tuple[str, str] | None:
+    def _normalize_artifact_link(self, artifact) -> tuple[str, str, str, dict] | None:
         if isinstance(artifact, str):
             value = artifact.strip()
             if not value:
                 return None
-            return ("Artifact", value)
+            return ("Artifact", value, "link", {})
         if not isinstance(artifact, dict):
             return None
 
@@ -326,7 +339,13 @@ class OrchestratorAgent(BaseAgent):
             or artifact.get("type")
             or url
         ).strip()
-        return (title or url, url)
+        artifact_type = str(artifact.get("type") or "link").strip() or "link"
+        metadata = {
+            key: value
+            for key, value in artifact.items()
+            if key not in {"title", "name", "url", "path", "file", "type"}
+        }
+        return (title or url, url, artifact_type, metadata)
 
     def _build_delegation_prompt(self, agent_name: str, work_item_id: str, task_description: str) -> str:
         context_bundle = self.ticket_tools.get_context_bundle(

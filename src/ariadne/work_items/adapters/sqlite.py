@@ -94,10 +94,17 @@ class SQLiteWorkItemStore(WorkItemStore):
                     ticket_id INTEGER NOT NULL,
                     title TEXT NOT NULL,
                     url TEXT NOT NULL,
+                    artifact_type TEXT DEFAULT 'link',
+                    agent_run_id INTEGER,
+                    metadata TEXT DEFAULT '{}',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (ticket_id) REFERENCES tickets (id)
+                    FOREIGN KEY (ticket_id) REFERENCES tickets (id),
+                    FOREIGN KEY (agent_run_id) REFERENCES agent_runs (id)
                 )
             ''')
+            self._ensure_artifact_column(cursor, "artifact_type", "TEXT DEFAULT 'link'")
+            self._ensure_artifact_column(cursor, "agent_run_id", "INTEGER")
+            self._ensure_artifact_column(cursor, "metadata", "TEXT DEFAULT '{}'")
             
             # Assignees Table (Many-to-Many or simple list for now)
             cursor.execute('''
@@ -145,6 +152,12 @@ class SQLiteWorkItemStore(WorkItemStore):
         columns = {row[1] for row in cursor.fetchall()}
         if column_name not in columns:
             cursor.execute(f"ALTER TABLE tickets ADD COLUMN {column_name} {definition}")
+
+    def _ensure_artifact_column(self, cursor: sqlite3.Cursor, column_name: str, definition: str) -> None:
+        cursor.execute("PRAGMA table_info(artifacts)")
+        columns = {row[1] for row in cursor.fetchall()}
+        if column_name not in columns:
+            cursor.execute(f"ALTER TABLE artifacts ADD COLUMN {column_name} {definition}")
 
     def _touch_work_item(self, cursor: sqlite3.Cursor, work_item_id: str) -> None:
         cursor.execute("UPDATE tickets SET updated_at = CURRENT_TIMESTAMP WHERE id = ?", (work_item_id,))
@@ -224,7 +237,16 @@ class SQLiteWorkItemStore(WorkItemStore):
             cursor.execute("SELECT * FROM artifacts WHERE ticket_id = ?", (work_item_id,))
             artifact_rows = cursor.fetchall()
             artifacts = [
-                ArtifactLink(title=r['title'], url=r['url']) for r in artifact_rows
+                ArtifactLink(
+                    id=str(r['id']),
+                    title=r['title'],
+                    url=r['url'],
+                    type=r['artifact_type'] or "link",
+                    agent_run_id=str(r['agent_run_id'] or ""),
+                    created_at=r['created_at'] or "",
+                    metadata=self._parse_json_object(r['metadata'], "artifact_metadata"),
+                )
+                for r in artifact_rows
             ]
 
             # Fetch Assignees
@@ -316,12 +338,40 @@ class SQLiteWorkItemStore(WorkItemStore):
                 raise ValueError(f"Work item {work_item_id} not found.")
             conn.commit()
 
-    def add_artifact_link(self, work_item_id: str, title: str, url: str, comment: str = None) -> None:
+    def add_artifact_link(
+        self,
+        work_item_id: str,
+        title: str,
+        url: str,
+        comment: str = None,
+        artifact_type: str = "link",
+        agent_run_id: str | None = None,
+        metadata: dict | None = None,
+    ) -> None:
+        title = title.strip()
+        url = url.strip()
+        artifact_type = artifact_type.strip() or "link"
+        if not title:
+            raise ValueError("Artifact title cannot be empty.")
+        if not url:
+            raise ValueError("Artifact URL cannot be empty.")
+
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
-                "INSERT INTO artifacts (ticket_id, title, url) VALUES (?, ?, ?)",
-                (work_item_id, title, url)
+                """
+                INSERT INTO artifacts (
+                    ticket_id, title, url, artifact_type, agent_run_id, metadata
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    work_item_id,
+                    title,
+                    url,
+                    artifact_type,
+                    agent_run_id,
+                    json.dumps(metadata or {}, sort_keys=True),
+                )
             )
             self._touch_work_item(cursor, work_item_id)
             conn.commit()

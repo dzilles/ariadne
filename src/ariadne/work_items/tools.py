@@ -100,7 +100,9 @@ class WorkItemTools:
                 
             lines.append("\n--- Artifacts ---")
             for a in work_item.artifacts:
-                lines.append(f"- {a.title}: {a.url}")
+                suffix = f" [{a.type}]" if a.type and a.type != "link" else ""
+                source = f" (agent run #{a.agent_run_id})" if a.agent_run_id else ""
+                lines.append(f"- {a.title}{suffix}: {a.url}{source}")
                 
             return "\n".join(lines)
         except Exception as e:
@@ -198,10 +200,27 @@ class WorkItemTools:
             return f"Error rejecting gate: {e}"
     
     @jit_vmodel_guard
-    def add_link(self, work_item_id: str, title: str, url: str, comment: str = None) -> str:
+    def add_link(
+        self,
+        work_item_id: str,
+        title: str,
+        url: str,
+        comment: str = None,
+        artifact_type: str = "link",
+        agent_run_id: str | None = None,
+        metadata: dict | None = None,
+    ) -> str:
         """Link an artifact (URL) to the work item and optionally post a comment."""
         try:
-            self.system.add_artifact_link(work_item_id, title, url, comment)
+            self.system.add_artifact_link(
+                work_item_id,
+                title,
+                url,
+                comment,
+                artifact_type=artifact_type,
+                agent_run_id=agent_run_id,
+                metadata=metadata,
+            )
             msg = f"Success: Linked {title} to {work_item_id}"
             if comment:
                 msg += " and added comment"
@@ -388,7 +407,7 @@ class WorkItemTools:
 *   `post_comment(work_item_id, comment)`: Add a comment.
 *   `approve_gate(work_item_id, gate)`: Mark a phase as Approved (analysis, design, test).
 *   `reject_gate(work_item_id, gate)`: Mark a phase as Rejected.
-*   `add_link(work_item_id, title, url, comment)`: Link an output artifact (doc/file) to the work item. Can optionally post a comment summarizing changes.
+*   `add_link(work_item_id, title, url, comment=None, artifact_type="link", agent_run_id=None, metadata=None)`: Link an output artifact (doc/file) to the work item. Can optionally post a comment summarizing changes.
 *   `add_commit_hash(work_item_id, commit_hash)`: Record a git commit hash relevant to the work item.
 *   `update_git_metadata(work_item_id, target_branch=None, feature_branch=None, base_commit=None, merge_request_id=None)`: Update branch, base commit, and merge request metadata.
 """
