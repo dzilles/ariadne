@@ -2,6 +2,7 @@ import logging
 from src.ariadne.agents.base_agent import BaseAgent
 from src.ariadne.tools.file_tools import FileAgentTools
 from src.ariadne.tools.git_tools import GitAgentTools
+from src.ariadne.tools.shell_tools import ShellAgentTools
 from src.ariadne.policies.registry import build_agent_tools, build_tool_docs
 from src.ariadne.tools.tool_wrapper import wrap_tools_with_error_handling
 from src.ariadne.infrastructure.container import DependencyRegistry
@@ -13,13 +14,14 @@ class ArchitectAgent(BaseAgent):
     Architect Agent responsible for System Design and Architecture.
     """
 
-    def __init__(self, ticket_tools=None, file_tools=None, git_tools=None, agent_run_tools=None):
+    def __init__(self, ticket_tools=None, file_tools=None, git_tools=None, shell_tools=None, agent_run_tools=None):
         super().__init__()
 
         try:
             self.ticket_tools = ticket_tools or DependencyRegistry.get_work_item_tools()
             self.file_tools = file_tools or DependencyRegistry.get_file_tools()
             self.git_tools = git_tools or DependencyRegistry.get_git_tools()
+            self.shell_tools = shell_tools or DependencyRegistry.get_shell_tools()
             self.agent_run_tools = agent_run_tools or DependencyRegistry.get_agent_run_tools()
         except Exception as e:
             logger.error(f"Failed to initialize tools: {e}")
@@ -33,7 +35,7 @@ class ArchitectAgent(BaseAgent):
 
         raw_tools = build_agent_tools(
             "Architect",
-            [self.ticket_tools, self.file_tools, self.git_tools, self.agent_run_tools],
+            [self.agent_run_tools, self.ticket_tools, self.file_tools, self.shell_tools, self.git_tools],
         )
         self.tools = wrap_tools_with_error_handling(raw_tools)
 

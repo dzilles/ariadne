@@ -27,7 +27,7 @@ class QMAgent(BaseAgent):
 
         raw_tools = build_agent_tools(
             "QM",
-            [self.ticket_tools, self.file_tools, self.agent_run_tools],
+            [self.agent_run_tools, self.ticket_tools, self.file_tools],
         )
         self.tools = wrap_tools_with_error_handling(raw_tools)
 
