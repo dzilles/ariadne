@@ -8,6 +8,8 @@ class FakeWorkItemTools:
         self.commit_hashes = []
         self.links = []
         self.shared_context = []
+        self.status_updates = []
+        self.comments = []
 
     def add_commit_hash(self, work_item_id, commit_hash):
         self.commit_hashes.append((work_item_id, commit_hash))
@@ -35,6 +37,14 @@ class FakeWorkItemTools:
         metadata=None,
     ):
         self.shared_context.append((work_item_id, author, context, agent_run_id, metadata or {}))
+        return "ok"
+
+    def update_status(self, work_item_id, status):
+        self.status_updates.append((work_item_id, status))
+        return "ok"
+
+    def post_comment(self, work_item_id, comment):
+        self.comments.append((work_item_id, comment))
         return "ok"
 
 
@@ -137,15 +147,37 @@ def test_apply_agent_run_to_work_item_ignores_failed_or_unchanged_runs():
 
     agent._apply_agent_run_to_work_item(
         "7",
-        {"status": "FAILED", "artifacts": [{"title": "Spec", "url": "docs/spec.md"}]},
-        {"starting_commit": "abc123", "latest_commit": "def456"},
-    )
-    agent._apply_agent_run_to_work_item(
-        "7",
         {"status": "SUCCESS", "artifacts": []},
         {"starting_commit": "abc123", "latest_commit": "abc123"},
     )
 
+    assert tools.commit_hashes == []
+    assert tools.links == []
+
+
+def test_apply_agent_run_to_work_item_blocks_and_comments_on_failed_run():
+    agent = OrchestratorAgent.__new__(OrchestratorAgent)
+    tools = FakeWorkItemTools()
+    agent.ticket_tools = tools
+
+    agent._apply_agent_run_to_work_item(
+        "7",
+        {
+            "status": "FAILED",
+            "summary": "Could not write requirement.",
+            "details": "Template was missing.",
+            "blockers": ["Need requirements template."],
+            "artifacts": [{"title": "Spec", "url": "docs/spec.md"}],
+        },
+        {"starting_commit": "abc123", "latest_commit": "def456"},
+    )
+
+    assert tools.status_updates == [("7", "Blocked")]
+    assert len(tools.comments) == 1
+    assert tools.comments[0][0] == "7"
+    assert "Summary: Could not write requirement." in tools.comments[0][1]
+    assert "Template was missing." in tools.comments[0][1]
+    assert "- Need requirements template." in tools.comments[0][1]
     assert tools.commit_hashes == []
     assert tools.links == []
 

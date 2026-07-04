@@ -293,6 +293,10 @@ class OrchestratorAgent(BaseAgent):
         evidence: dict,
         agent_run_id: str | None = None,
     ) -> None:
+        if completion.get("status") == "FAILED":
+            self._apply_failed_agent_run_to_work_item(work_item_id, completion)
+            return
+
         if completion.get("status") != "SUCCESS":
             return
 
@@ -316,6 +320,28 @@ class OrchestratorAgent(BaseAgent):
                 metadata=metadata,
             )
             logger.info("Artifact link update result for work item #%s: %s", work_item_id, result)
+
+    def _apply_failed_agent_run_to_work_item(self, work_item_id: str, completion: dict) -> None:
+        status_result = self.ticket_tools.update_status(work_item_id, "Blocked")
+        logger.info("Failure status update result for work item #%s: %s", work_item_id, status_result)
+
+        summary = str(completion.get("summary") or "Delegated agent reported failure.").strip()
+        details = str(completion.get("details") or "").strip()
+        blockers = [str(blocker).strip() for blocker in completion.get("blockers") or [] if str(blocker).strip()]
+
+        lines = [
+            "Delegated agent failed.",
+            f"Summary: {summary}",
+        ]
+        if details:
+            lines.extend(["", "Details:", details])
+        if blockers:
+            lines.append("")
+            lines.append("Blockers:")
+            lines.extend(f"- {blocker}" for blocker in blockers)
+
+        comment_result = self.ticket_tools.post_comment(work_item_id, "\n".join(lines))
+        logger.info("Failure comment result for work item #%s: %s", work_item_id, comment_result)
 
     def _normalize_artifact_link(self, artifact) -> tuple[str, str, str, dict] | None:
         if isinstance(artifact, str):
