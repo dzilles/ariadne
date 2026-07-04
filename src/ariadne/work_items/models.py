@@ -188,7 +188,14 @@ class WorkItemStore(ABC):
         pass
 
     @abstractmethod
-    def append_shared_context(self, work_item_id: str, author: str, context: str) -> None:
+    def append_shared_context(
+        self,
+        work_item_id: str,
+        author: str,
+        context: str,
+        agent_run_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
         """Append shared context for later agents working on this work item."""
         pass
 

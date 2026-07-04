@@ -269,6 +269,7 @@ class OrchestratorAgent(BaseAgent):
                 response,
                 evidence,
                 completion,
+                agent_run_id=agent_run_id,
             )
             return f"[{agent_name} Response]:\n{response}"
         except Exception as e:
@@ -420,11 +421,29 @@ Do not choose the next agent. The Orchestrator decides workflow routing.
         response: str,
         evidence: dict | None = None,
         completion: dict | None = None,
+        agent_run_id: str | None = None,
     ) -> None:
         completion = completion if completion is not None else self._parse_agent_completion(response)
         context = self._format_handoff_context(agent_name, response, completion, evidence or {})
-        result = self.ticket_tools.append_shared_context(work_item_id, agent_name, context)
+        metadata = self._handoff_context_metadata(completion, evidence or {})
+        result = self.ticket_tools.append_shared_context(
+            work_item_id,
+            agent_name,
+            context,
+            agent_run_id=agent_run_id,
+            metadata=metadata,
+        )
         logger.info("Shared context append result for work item #%s: %s", work_item_id, result)
+
+    def _handoff_context_metadata(self, completion: dict | None, evidence: dict) -> dict:
+        metadata = {
+            "status": (completion or {}).get("status", "UNKNOWN"),
+            "latest_commit": evidence.get("latest_commit") or "",
+            "changed_files": evidence.get("changed_files") or [],
+        }
+        if (completion or {}).get("artifacts"):
+            metadata["artifact_count"] = len((completion or {}).get("artifacts") or [])
+        return metadata
 
     def _parse_agent_completion(self, response: str) -> dict | None:
         marker = "[AGENT_RUN_COMPLETE]"

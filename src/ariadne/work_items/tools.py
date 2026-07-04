@@ -259,10 +259,23 @@ class WorkItemTools:
             return f"Error adding commit hash: {e}"
 
     @jit_vmodel_guard
-    def append_shared_context(self, work_item_id: str, author: str, context: str) -> str:
+    def append_shared_context(
+        self,
+        work_item_id: str,
+        author: str,
+        context: str,
+        agent_run_id: str | None = None,
+        metadata: dict | None = None,
+    ) -> str:
         """Append context for the next agent working on this work item."""
         try:
-            self.system.append_shared_context(work_item_id, author, context)
+            self.system.append_shared_context(
+                work_item_id,
+                author,
+                context,
+                agent_run_id=agent_run_id,
+                metadata=metadata,
+            )
             return f"Success: Appended shared context to work item {work_item_id}"
         except Exception as e:
             return f"Error appending shared context: {e}"
@@ -425,7 +438,7 @@ class WorkItemTools:
 *   `update_git_metadata(work_item_id, target_branch=None, feature_branch=None, base_commit=None, merge_request_id=None)`: Update branch, base commit, and merge request metadata.
 """
         if include_context_writer:
-            descriptions += "*   `append_shared_context(work_item_id, author, context)`: Orchestrator-only tool for appending handoff context for later agents.\n"
+            descriptions += "*   `append_shared_context(work_item_id, author, context, agent_run_id=None, metadata=None)`: Orchestrator-only tool for appending handoff context for later agents.\n"
         return descriptions
 
 

@@ -7,6 +7,7 @@ class FakeWorkItemTools:
     def __init__(self):
         self.commit_hashes = []
         self.links = []
+        self.shared_context = []
 
     def add_commit_hash(self, work_item_id, commit_hash):
         self.commit_hashes.append((work_item_id, commit_hash))
@@ -23,6 +24,17 @@ class FakeWorkItemTools:
         metadata=None,
     ):
         self.links.append((work_item_id, title, url, artifact_type, agent_run_id, metadata or {}))
+        return "ok"
+
+    def append_shared_context(
+        self,
+        work_item_id,
+        author,
+        context,
+        agent_run_id=None,
+        metadata=None,
+    ):
+        self.shared_context.append((work_item_id, author, context, agent_run_id, metadata or {}))
         return "ok"
 
 
@@ -136,3 +148,40 @@ def test_apply_agent_run_to_work_item_ignores_failed_or_unchanged_runs():
 
     assert tools.commit_hashes == []
     assert tools.links == []
+
+
+def test_append_agent_handoff_context_links_context_to_agent_run():
+    agent = OrchestratorAgent.__new__(OrchestratorAgent)
+    tools = FakeWorkItemTools()
+    agent.ticket_tools = tools
+    completion = {
+        "status": "SUCCESS",
+        "summary": "Finished design.",
+        "artifacts": [{"title": "Design", "url": "docs/design.md"}],
+    }
+    evidence = {
+        "latest_commit": "abc123",
+        "changed_files": ["docs/design.md"],
+    }
+
+    agent._append_agent_handoff_context(
+        "7",
+        "Architect",
+        "",
+        evidence=evidence,
+        completion=completion,
+        agent_run_id="99",
+    )
+
+    assert len(tools.shared_context) == 1
+    work_item_id, author, context, agent_run_id, metadata = tools.shared_context[0]
+    assert work_item_id == "7"
+    assert author == "Architect"
+    assert "Summary: Finished design." in context
+    assert agent_run_id == "99"
+    assert metadata == {
+        "status": "SUCCESS",
+        "latest_commit": "abc123",
+        "changed_files": ["docs/design.md"],
+        "artifact_count": 1,
+    }

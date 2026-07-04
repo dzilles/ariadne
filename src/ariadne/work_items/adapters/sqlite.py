@@ -442,7 +442,14 @@ class SQLiteWorkItemStore(WorkItemStore):
                 )
             conn.commit()
 
-    def append_shared_context(self, work_item_id: str, author: str, context: str) -> None:
+    def append_shared_context(
+        self,
+        work_item_id: str,
+        author: str,
+        context: str,
+        agent_run_id: str | None = None,
+        metadata: dict | None = None,
+    ) -> None:
         context = context.strip()
         if not context:
             raise ValueError("Shared context cannot be empty.")
@@ -465,15 +472,16 @@ class SQLiteWorkItemStore(WorkItemStore):
             cursor.execute(
                 """
                 INSERT INTO context_entries (
-                    ticket_id, author, kind, content, metadata
-                ) VALUES (?, ?, ?, ?, ?)
+                    ticket_id, author, kind, content, agent_run_id, metadata
+                ) VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 (
                     work_item_id,
                     author.strip() or "Ariadne",
                     "handoff",
                     context,
-                    json.dumps({}, sort_keys=True),
+                    agent_run_id,
+                    json.dumps(metadata or {}, sort_keys=True),
                 ),
             )
             conn.commit()

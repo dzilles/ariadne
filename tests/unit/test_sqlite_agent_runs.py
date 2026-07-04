@@ -53,8 +53,15 @@ def test_sqlite_store_persists_context_entries(tmp_path):
 def test_append_shared_context_keeps_structured_context_in_sync(tmp_path):
     store = SQLiteWorkItemStore(str(tmp_path / "ariadne.db"))
     work_item_id = store.create_work_item("Demo", "Description", WorkItemType.TASK, "Medium")
+    run_id = store.start_agent_run(work_item_id, "Architect", "Design it")
 
-    store.append_shared_context(work_item_id, "Architect", "Use the existing parser.")
+    store.append_shared_context(
+        work_item_id,
+        "Architect",
+        "Use the existing parser.",
+        agent_run_id=run_id,
+        metadata={"status": "SUCCESS", "changed_files": ["docs/design.md"]},
+    )
 
     work_item = store.get_work_item(work_item_id)
     entries = store.list_context_entries(work_item_id)
@@ -65,6 +72,11 @@ def test_append_shared_context_keeps_structured_context_in_sync(tmp_path):
     assert entries[0].author == "Architect"
     assert entries[0].kind == "handoff"
     assert entries[0].content == "Use the existing parser."
+    assert entries[0].agent_run_id == run_id
+    assert entries[0].metadata == {
+        "status": "SUCCESS",
+        "changed_files": ["docs/design.md"],
+    }
 
 
 def test_sqlite_store_persists_typed_artifact_metadata(tmp_path):
