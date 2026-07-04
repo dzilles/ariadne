@@ -13,13 +13,14 @@ class ArchitectAgent(BaseAgent):
     Architect Agent responsible for System Design and Architecture.
     """
 
-    def __init__(self, ticket_tools=None, file_tools=None, git_tools=None):
+    def __init__(self, ticket_tools=None, file_tools=None, git_tools=None, agent_run_tools=None):
         super().__init__()
 
         try:
             self.ticket_tools = ticket_tools or DependencyRegistry.get_work_item_tools()
             self.file_tools = file_tools or DependencyRegistry.get_file_tools()
             self.git_tools = git_tools or DependencyRegistry.get_git_tools()
+            self.agent_run_tools = agent_run_tools or DependencyRegistry.get_agent_run_tools()
         except Exception as e:
             logger.error(f"Failed to initialize tools: {e}")
             raise
@@ -32,7 +33,7 @@ class ArchitectAgent(BaseAgent):
 
         raw_tools = build_agent_tools(
             "Architect",
-            [self.ticket_tools, self.file_tools, self.git_tools],
+            [self.ticket_tools, self.file_tools, self.git_tools, self.agent_run_tools],
         )
         self.tools = wrap_tools_with_error_handling(raw_tools)
 
@@ -58,6 +59,8 @@ You MUST begin every response with a `<thought>` block. Before calling any tools
 5. **Visual Documentation (MANDATORY):** You MUST include at least one Mermaid.js diagram (e.g., `graph TD`, `sequenceDiagram`) in every architecture document to visualize component interactions.
 6. **Data Schema Rigor:** For every Data Model listed, you MUST define its primary fields and their types (e.g. using a list or a pseudo-Pydantic block).
 7. **Explicit Linking:** Once you create or update the markdown document, you MUST use the `add_link` tool to attach the artifact path (e.g., `docs/design/ARCH-005.md`) to the current ticket. This creates a permanent, clickable reference.
+
+{self._completion_protocol()}
 
 ### Available Tools:
 {self.tool_docs}

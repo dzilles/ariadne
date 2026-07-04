@@ -11,18 +11,15 @@ class FileAgentTools:
     """
     
     def _resolve_path(self, path: str) -> str:
-        """Resolves the given path against the sandbox directory if sandbox mode is enabled."""
-        if not settings.sandbox_mode:
-            return path
-            
-        # Remove leading slashes so os.path.join treats it as relative
-        clean_path = str(path).lstrip('/')
-        # If it's a dot or explicitly current dir, map to sandbox root
-        if clean_path in ('.', ''):
-            return settings.sandbox_dir
-            
-        resolved = os.path.join(settings.sandbox_dir, clean_path)
-        return resolved
+        """Resolve relative paths against the configured project root."""
+        raw_path = str(path)
+        if os.path.isabs(raw_path):
+            return raw_path
+
+        if raw_path in (".", ""):
+            return settings.project_path
+
+        return os.path.join(settings.project_path, raw_path)
     
     def read_file(self, file_path: str) -> str:
         """
@@ -32,8 +29,7 @@ class FileAgentTools:
             file_path: The relative or absolute path to the file.
         """
         actual_path = self._resolve_path(file_path)
-        msg_prefix = "[Tool (SANDBOX)" if settings.sandbox_mode else "[Tool"
-        msg = f"{msg_prefix}: read_file called for '{file_path}' (resolved: {actual_path})]"
+        msg = f"[Tool: read_file called for '{file_path}' (resolved: {actual_path})]"
         print(f"\n{msg}")
         logger.info(msg)
         
@@ -56,8 +52,7 @@ class FileAgentTools:
             content: The text content to write.
         """
         actual_path = self._resolve_path(file_path)
-        msg_prefix = "[Tool (SANDBOX)" if settings.sandbox_mode else "[Tool"
-        msg = f"{msg_prefix}: write_file called for '{file_path}' (resolved: {actual_path})]"
+        msg = f"[Tool: write_file called for '{file_path}' (resolved: {actual_path})]"
         print(f"\n{msg}")
         logger.info(msg)
         
@@ -77,8 +72,7 @@ class FileAgentTools:
         Lists files in a directory.
         """
         actual_path = self._resolve_path(directory)
-        msg_prefix = "[Tool (SANDBOX)" if settings.sandbox_mode else "[Tool"
-        msg = f"{msg_prefix}: list_files called for '{directory}' (resolved: {actual_path})]"
+        msg = f"[Tool: list_files called for '{directory}' (resolved: {actual_path})]"
         print(f"\n{msg}")
         logger.info(msg)
         
@@ -97,8 +91,7 @@ class FileAgentTools:
         Supports glob patterns (e.g., 'ARCH-*.md').
         """
         actual_path = self._resolve_path(directory)
-        msg_prefix = "[Tool (SANDBOX)" if settings.sandbox_mode else "[Tool"
-        msg = f"{msg_prefix}: search_files called in '{directory}' (resolved: {actual_path}) for '{pattern}']"
+        msg = f"[Tool: search_files called in '{directory}' (resolved: {actual_path}) for '{pattern}']"
         print(f"\n{msg}")
         logger.info(msg)
         
@@ -108,8 +101,10 @@ class FileAgentTools:
             for root, _, files in os.walk(actual_path):
                 for file in files:
                     if fnmatch.fnmatch(file, pattern) or pattern in file:
-                         # Return paths relative to the requested directory, not the sandbox root
-                         rel_path = os.path.relpath(os.path.join(root, file), start=settings.sandbox_dir)
+                         rel_path = os.path.relpath(
+                             os.path.join(root, file),
+                             start=settings.project_path,
+                         )
                          matches.append(rel_path)
             if not matches:
                  return "No files found matching pattern."

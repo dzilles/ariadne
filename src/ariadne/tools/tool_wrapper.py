@@ -8,6 +8,7 @@ import time
 from dataclasses import dataclass
 from typing import Callable, Any, Optional, Literal
 
+from src.ariadne.policies.evaluator import evaluate_tool_call
 from src.ariadne.runtime.context import get_active_work_item_id
 from src.ariadne.runtime.run_manager import is_cancel_requested
 
@@ -238,8 +239,16 @@ def with_error_handling(func: Callable) -> Callable:
             _audit_tool_call(tool_name, "cancelled", tool_args, result)
             return result
 
+        decision = evaluate_tool_call(tool_name, tool_args)
+        if not decision.allowed:
+            result = decision.reason
+            _notify_tool(tool_name, "cancelled", tool_args, result)
+            _audit_tool_call(tool_name, "cancelled", tool_args, result)
+            return result
+
         approval_required = (
-            _approval_callback
+            decision.requires_user_permission
+            and _approval_callback
             and _approval_enabled
             and (not _auto_approve_session or tool_name == "delegate_to_agent")
         )
@@ -276,6 +285,9 @@ def with_error_handling(func: Callable) -> Callable:
             if result_str.startswith("[Tool Error:"):
                 _notify_tool(tool_name, "error", tool_args, result_str)
                 _audit_tool_call(tool_name, "error", tool_args, result_str)
+            elif result_str.startswith("⛔"):
+                _notify_tool(tool_name, "cancelled", tool_args, result_str)
+                _audit_tool_call(tool_name, "cancelled", tool_args, result_str)
             else:
                 _notify_tool(tool_name, "success", tool_args, result_str)
                 _audit_tool_call(tool_name, "success", tool_args, result_str)
@@ -308,7 +320,27 @@ def wrap_tools_with_error_handling(tools: list) -> list:
     wrapped = []
     for tool in tools:
         if callable(tool):
-            wrapped.append(with_error_handling(tool))
+            wrapped_tool = with_error_handling(tool)
+            if _is_tool_return_direct(wrapped_tool.__name__):
+                wrapped.append(_as_return_direct_tool(wrapped_tool))
+            else:
+                wrapped.append(wrapped_tool)
         else:
             wrapped.append(tool)
     return wrapped
+
+
+def _is_tool_return_direct(tool_name: str) -> bool:
+    try:
+        from src.ariadne.policies.loader import get_policy
+
+        tool_policy = get_policy().tools.get(tool_name)
+    except Exception:
+        return False
+    return bool(tool_policy and tool_policy.return_direct)
+
+
+def _as_return_direct_tool(tool: Callable) -> Any:
+    from langchain_core.tools import StructuredTool
+
+    return StructuredTool.from_function(tool, return_direct=True)

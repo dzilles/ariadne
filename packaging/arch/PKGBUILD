@@ -15,9 +15,6 @@ makedepends=(
   'python-build'
   'python-wheel'
 )
-optdepends=(
-  'docker: sandbox execution support'
-)
 source=("${pkgname}::git+file://${startdir}/../..")
 sha256sums=('SKIP')
 

@@ -14,28 +14,42 @@ from src.ariadne.tools.tool_wrapper import ToolNotification
 class FakeAgent:
     def __init__(self):
         self.cleared = False
+        self.loaded_context = None
 
     def get_history(self):
         return []
 
+    def get_context(self):
+        return {
+            "schema_version": 2,
+            "system_message": "system",
+            "current_prompt": "prompt",
+            "chat_history": [],
+        }
+
     def load_history(self, history):
         self.loaded_history = history
+
+    def load_context(self, context):
+        self.loaded_context = context
 
     def clear_history(self):
         self.cleared = True
 
 
-def test_load_chat_history_reports_loaded_count(monkeypatch):
-    monkeypatch.setattr(controller_module, "load_history", lambda agent, name: True)
-    monkeypatch.setattr(
-        controller_module,
-        "get_history_summary",
-        lambda name: {"message_count": 3},
-    )
+def test_load_chat_history_loads_all_agent_contexts(monkeypatch):
+    loaded = []
+
+    def fake_load(agent, name):
+        loaded.append(name)
+        agent.load_context({"current_prompt": f"prompt {name}", "chat_history": []})
+        return True
+
+    monkeypatch.setattr(controller_module, "load_history", fake_load)
 
     controller = AriadneApplicationController(
-        {"Fake": FakeAgent},
-        {"Fake": "fake agent"},
+        {"Fake": FakeAgent, "Other": FakeAgent},
+        {"Fake": "fake agent", "Other": "other agent"},
         reset_session_approval_func=lambda: None,
     )
     controller.switch_agent("Fake")
@@ -43,7 +57,31 @@ def test_load_chat_history_reports_loaded_count(monkeypatch):
     result = controller.load_chat_history()
 
     assert not result.is_error
-    assert result.message == "Loaded 3 messages for **Fake**"
+    assert result.message == "Loaded contexts for 2 agent(s)."
+    assert set(loaded) == {"Fake", "Other"}
+    assert controller._agent_instances["Other"].loaded_context["current_prompt"] == "prompt Other"
+
+
+def test_save_chat_history_saves_all_agent_contexts(monkeypatch):
+    saved = []
+    monkeypatch.setattr(
+        controller_module,
+        "save_history",
+        lambda agent, name: saved.append(name) or True,
+    )
+
+    controller = AriadneApplicationController(
+        {"Fake": FakeAgent, "Other": FakeAgent},
+        {"Fake": "fake agent", "Other": "other agent"},
+        reset_session_approval_func=lambda: None,
+    )
+    controller.switch_agent("Fake")
+
+    result = controller.save_chat_history()
+
+    assert not result.is_error
+    assert result.message == "Saved contexts for 2 agent(s)."
+    assert set(saved) == {"Fake", "Other"}
 
 
 def test_history_status_lists_registered_agents(monkeypatch):
@@ -59,7 +97,7 @@ def test_history_status_lists_registered_agents(monkeypatch):
     result = controller.get_history_status()
 
     assert not result.is_error
-    assert "`Fake` (active): No saved history" in result.message
+    assert "`Fake` (active): No saved context" in result.message
 
 
 def test_clear_chat_history_uses_existing_history_function(monkeypatch):
@@ -76,7 +114,7 @@ def test_clear_chat_history_uses_existing_history_function(monkeypatch):
     result = controller.clear_chat_history()
 
     assert not result.is_error
-    assert result.message == "History cleared for **Fake**"
+    assert result.message == "Context cleared for **Fake**"
     assert agent.cleared is True
 
 

@@ -3,6 +3,7 @@ import json
 
 CONFIG_DIR = ".ariadne"
 SETTINGS_FILE = os.path.join(CONFIG_DIR, "user_settings.json")
+AGENT_POLICY_FILE = os.path.join(CONFIG_DIR, "agent_policy.json")
 
 def init_config():
     # Create config directory if it doesn't exist
@@ -34,7 +35,7 @@ def init_config():
         ],
         "tool_audit_logged_statuses": ["success", "error", "cancelled"],
         "tool_audit_result_max_chars": 1000,
-        "sandbox_mode": True
+        "agent_policy_path": ".ariadne/agent_policy.json"
     }
 
     # Create user_settings.json if it doesn't exist
@@ -44,6 +45,13 @@ def init_config():
         print(f"\033[92mCreated default settings: {SETTINGS_FILE}\033[0m")
     else:
         print(f"\033[93mSettings file already exists: {SETTINGS_FILE}\033[0m")
+
+    if not os.path.exists(AGENT_POLICY_FILE):
+        with open(AGENT_POLICY_FILE, "w") as f:
+            json.dump({}, f, indent=2)
+        print(f"\033[92mCreated agent policy override: {AGENT_POLICY_FILE}\033[0m")
+    else:
+        print(f"\033[93mAgent policy override already exists: {AGENT_POLICY_FILE}\033[0m")
 
     print(f"\033[96mNOTE: All API Keys must be configured securely using the '/secret' command in the TUI.\033[0m")
 

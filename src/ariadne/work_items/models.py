@@ -46,6 +46,25 @@ class ToolLogEntry(BaseModel):
     result: str = ""
 
 
+class AgentRunStatus(str, Enum):
+    RUNNING = "RUNNING"
+    SUCCESS = "SUCCESS"
+    FAILED = "FAILED"
+    CANCELLED = "CANCELLED"
+
+
+class AgentRun(BaseModel):
+    id: str
+    work_item_id: str
+    agent_name: str
+    status: AgentRunStatus
+    started_at: str = ""
+    finished_at: str = ""
+    task_description: str = ""
+    completion_payload: dict[str, Any] = Field(default_factory=dict)
+    evidence: dict[str, Any] = Field(default_factory=dict)
+
+
 class WorkItem(BaseModel):
     id: str
     title: str
@@ -70,7 +89,7 @@ class WorkItem(BaseModel):
     gate_test_status: GateStatus = GateStatus.PENDING
     
     # Artifacts
-    artifacts: List[ArtifactLink] = []
+    artifacts: List[ArtifactLink] = Field(default_factory=list)
 
 
 class WorkItemStore(ABC):
@@ -124,6 +143,21 @@ class WorkItemStore(ABC):
         pass
 
     @abstractmethod
+    def delete_artifact_link(
+        self,
+        work_item_id: str,
+        title: str | None = None,
+        url: str | None = None,
+    ) -> None:
+        """Delete artifact links matching the given title and/or URL."""
+        pass
+
+    @abstractmethod
+    def remove_comment(self, work_item_id: str, comment_id: str) -> None:
+        """Remove a comment from a work item by comment ID."""
+        pass
+
+    @abstractmethod
     def add_commit_hash(self, work_item_id: str, commit_hash: str) -> None:
         """Record a git commit hash that is relevant to this work item."""
         pass
@@ -131,6 +165,32 @@ class WorkItemStore(ABC):
     @abstractmethod
     def append_shared_context(self, work_item_id: str, author: str, context: str) -> None:
         """Append shared context for later agents working on this work item."""
+        pass
+
+    @abstractmethod
+    def start_agent_run(
+        self,
+        work_item_id: str,
+        agent_name: str,
+        task_description: str,
+    ) -> str:
+        """Create an agent run record and return its ID."""
+        pass
+
+    @abstractmethod
+    def finish_agent_run(
+        self,
+        agent_run_id: str,
+        status: AgentRunStatus,
+        completion_payload: dict[str, Any],
+        evidence: dict[str, Any],
+    ) -> None:
+        """Mark an agent run complete and store completion/evidence payloads."""
+        pass
+
+    @abstractmethod
+    def list_agent_runs(self, work_item_id: str) -> List[AgentRun]:
+        """List agent runs for a work item."""
         pass
 
     @abstractmethod

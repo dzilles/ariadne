@@ -14,7 +14,7 @@ class TesterAgent(BaseAgent):
     Tester Agent responsible for writing and executing tests.
     """
 
-    def __init__(self, ticket_tools=None, file_tools=None, git_tools=None, shell_tools=None):
+    def __init__(self, ticket_tools=None, file_tools=None, git_tools=None, shell_tools=None, agent_run_tools=None):
         super().__init__()
 
         try:
@@ -22,6 +22,7 @@ class TesterAgent(BaseAgent):
             self.file_tools = file_tools or DependencyRegistry.get_file_tools()
             self.git_tools = git_tools or DependencyRegistry.get_git_tools()
             self.shell_tools = shell_tools or DependencyRegistry.get_shell_tools()
+            self.agent_run_tools = agent_run_tools or DependencyRegistry.get_agent_run_tools()
         except Exception as e:
             logger.error(f"Failed to initialize tools: {e}")
             raise
@@ -33,7 +34,7 @@ class TesterAgent(BaseAgent):
 
         raw_tools = build_agent_tools(
             "Tester",
-            [self.ticket_tools, self.file_tools, self.shell_tools, self.git_tools],
+            [self.ticket_tools, self.file_tools, self.shell_tools, self.git_tools, self.agent_run_tools],
         )
         self.tools = wrap_tools_with_error_handling(raw_tools)
 
@@ -50,6 +51,8 @@ Your goal is to write comprehensive tests for the software.
 2.  **Ensure Coverage:** Aim for high code coverage and test edge cases.
 3.  **Validate:** Ensure tests pass locally before committing.
 4.  **Document:** Document test cases and instructions.
+
+{self._completion_protocol()}
 
 ### Available Tools:
 {self.tool_docs}

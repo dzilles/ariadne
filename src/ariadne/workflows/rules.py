@@ -64,7 +64,7 @@ WORKFLOW_RULES: List[WorkflowRule] = [
         current_state=WorkItemStatus.READY_FOR_DEVELOPMENT,
         agent_name="Developer",
         description="Implement the feature code based on the Technical Design.",
-        allowed_actions=["read_file", "write_file", "create_branch", "add_files", "commit_changes", "add_commit_hash", "update_git_metadata", "append_shared_context", "update_status", "post_comment"],
+        allowed_actions=["read_file", "write_file", "run_shell_command", "create_branch", "add_files", "commit_changes", "add_commit_hash", "update_git_metadata", "append_shared_context", "update_status", "post_comment"],
         # No single artifact pattern for code, but implied output is source code
         next_state=WorkItemStatus.READY_FOR_TESTING
     ),
@@ -74,7 +74,7 @@ WORKFLOW_RULES: List[WorkflowRule] = [
         current_state=WorkItemStatus.READY_FOR_TESTING,
         agent_name="Tester",
         description="Write and execute automated tests against the implementation.",
-        allowed_actions=["read_file", "write_file", "run_test_command", "create_branch", "add_files", "commit_changes", "add_commit_hash", "update_git_metadata", "append_shared_context", "update_status", "post_comment", "approve_gate", "reject_gate"],
+        allowed_actions=["read_file", "write_file", "run_shell_command", "create_branch", "add_files", "commit_changes", "add_commit_hash", "update_git_metadata", "append_shared_context", "update_status", "post_comment", "approve_gate", "reject_gate"],
         gate_to_update="test",
         next_state=WorkItemStatus.READY_FOR_QA
     ),

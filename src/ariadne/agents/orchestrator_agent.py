@@ -1,8 +1,12 @@
 import logging
+import json
+import os
+import subprocess
 from src.ariadne.agents.base_agent import BaseAgent
 from src.ariadne.tools.file_tools import FileAgentTools
 from src.ariadne.policies.registry import build_agent_tools, build_tool_docs
 from src.ariadne.tools.tool_wrapper import wrap_tools_with_error_handling
+from src.ariadne.config.settings import settings
 from src.ariadne.infrastructure.container import DependencyRegistry
 
 logger = logging.getLogger(__name__)
@@ -30,13 +34,161 @@ class OrchestratorAgent(BaseAgent):
         raw_tools = build_agent_tools(
             "Orchestrator",
             [self.ticket_tools, self.file_tools],
-            extra_tools={"delegate_to_agent": self.delegate_to_agent},
+            extra_tools={
+                "search_codebase": self.search_codebase,
+                "git_diff": self.git_diff,
+                "delete_agent_context": self.delete_agent_context,
+                "delegate_to_agent": self.delegate_to_agent,
+            },
         )
         self.tools = wrap_tools_with_error_handling(raw_tools)
 
         self.tool_docs = build_tool_docs(raw_tools)
 
         self._init_executor(self.tools, self._get_system_message())
+
+    def search_codebase(
+        self,
+        query: str,
+        directory: str = ".",
+        file_glob: str = "*",
+        max_results: int = 50,
+    ) -> str:
+        """
+        Search the codebase for text using ripgrep-style grep output.
+        """
+        query = query.strip()
+        if not query:
+            return "Error: query cannot be empty."
+        try:
+            max_results = max(1, int(max_results))
+        except (TypeError, ValueError):
+            return "Error: max_results must be a positive integer."
+
+        try:
+            search_root = self._resolve_project_path(directory)
+            result = subprocess.run(
+                [
+                    "rg",
+                    "--line-number",
+                    "--with-filename",
+                    "--glob",
+                    file_glob,
+                    query,
+                    search_root,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+        except FileNotFoundError:
+            return self._search_codebase_without_rg(query, directory, file_glob, max_results)
+        except Exception as e:
+            return f"Error searching codebase: {e}"
+
+        if result.returncode == 1:
+            return "No matches found."
+        if result.returncode != 0:
+            return f"Error searching codebase: {result.stderr.strip()}"
+
+        lines = result.stdout.splitlines()
+        truncated = len(lines) > max_results
+        lines = lines[:max_results]
+        output = "\n".join(self._format_search_line(line) for line in lines)
+        if truncated:
+            output += f"\n... truncated after {max_results} matches"
+        return output
+
+    def git_diff(self, staged: bool = False, file_path: str | None = None) -> str:
+        """
+        Show the current git diff for unstaged changes, staged changes, or one file.
+        """
+        command = ["git", "diff"]
+        if staged:
+            command.append("--cached")
+        if file_path:
+            command.extend(["--", file_path])
+
+        try:
+            result = subprocess.run(
+                command,
+                cwd=settings.project_path,
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+        except Exception as e:
+            return f"Error running git diff: {e}"
+
+        if result.returncode != 0:
+            return f"Error running git diff: {result.stderr.strip()}"
+        return result.stdout or "No diff."
+
+    def delete_agent_context(self, agent_name: str) -> str:
+        """
+        Delete the saved prompt and chat context for an agent.
+        """
+        try:
+            from src.ariadne.application.history import clear_history
+
+            if clear_history(agent_name):
+                return f"Success: Deleted saved context for {agent_name}"
+            return f"Error: Failed to delete saved context for {agent_name}"
+        except Exception as e:
+            return f"Error deleting agent context: {e}"
+
+    def _resolve_project_path(self, path: str) -> str:
+        project_root = os.path.abspath(settings.project_path)
+        candidate = path if os.path.isabs(path) else os.path.join(project_root, path)
+        candidate = os.path.abspath(candidate)
+        if os.path.commonpath([project_root, candidate]) != project_root:
+            raise ValueError("Path must stay inside the project root.")
+        return candidate
+
+    def _format_search_line(self, line: str) -> str:
+        project_root = os.path.abspath(settings.project_path)
+        parts = line.split(":", 2)
+        if len(parts) < 3:
+            return line
+        file_path, line_number, match = parts
+        try:
+            file_path = os.path.relpath(file_path, project_root)
+        except ValueError:
+            pass
+        return f"{file_path}:{line_number}:{match}"
+
+    def _search_codebase_without_rg(
+        self,
+        query: str,
+        directory: str,
+        file_glob: str,
+        max_results: int,
+    ) -> str:
+        import fnmatch
+
+        matches = []
+        search_root = self._resolve_project_path(directory)
+        project_root = os.path.abspath(settings.project_path)
+        for root, _, files in os.walk(search_root):
+            for file_name in files:
+                if not fnmatch.fnmatch(file_name, file_glob):
+                    continue
+                path = os.path.join(root, file_name)
+                try:
+                    with open(path, "r", encoding="utf-8") as candidate:
+                        for line_number, line in enumerate(candidate, start=1):
+                            if query in line:
+                                rel_path = os.path.relpath(path, project_root)
+                                matches.append(f"{rel_path}:{line_number}:{line.rstrip()}")
+                                if len(matches) >= max_results:
+                                    return "\n".join(matches) + f"\n... truncated after {max_results} matches"
+                except UnicodeDecodeError:
+                    continue
+                except OSError:
+                    continue
+        return "\n".join(matches) if matches else "No matches found."
 
     def delegate_to_agent(self, agent_name: str, work_item_id: str, task_description: str) -> str:
         """
@@ -55,6 +207,10 @@ class OrchestratorAgent(BaseAgent):
         if agent_name not in AGENT_CLASSES:
             return f"Error: Unknown agent '{agent_name}'. Available: {list(AGENT_CLASSES.keys())}"
 
+        clean_check = self._check_clean_git_status()
+        if clean_check:
+            return clean_check
+
         # Status mapping for automatic work item reopening/progression
         status_map = {
             "Requirements": WorkItemStatus.READY_FOR_ANALYSIS,
@@ -66,8 +222,17 @@ class OrchestratorAgent(BaseAgent):
 
         # Set the context for the JIT guard
         set_active_work_item_id(work_item_id)
+        agent_run_id = None
         
         try:
+            agent_run_id = self.ticket_tools.start_agent_run(
+                work_item_id,
+                agent_name,
+                task_description,
+            )
+            if str(agent_run_id).startswith("Error"):
+                return str(agent_run_id)
+
             # 1. Ensure work item is in the correct status for the agent
             if agent_name in status_map:
                 target_status = status_map[agent_name]
@@ -81,9 +246,35 @@ class OrchestratorAgent(BaseAgent):
             response = agent_instance.chat(
                 self._build_delegation_prompt(agent_name, work_item_id, task_description)
             )
-            self._append_agent_handoff_context(work_item_id, agent_name, response)
+            evidence = self._collect_handoff_evidence()
+            completion = self._parse_agent_completion(response) or {}
+            completion_status = completion.get("status", "FAILED")
+            self.ticket_tools.finish_agent_run(
+                agent_run_id,
+                completion_status,
+                completion,
+                evidence,
+            )
+            self._append_agent_handoff_context(
+                work_item_id,
+                agent_name,
+                response,
+                evidence,
+                completion,
+            )
             return f"[{agent_name} Response]:\n{response}"
         except Exception as e:
+            if agent_run_id:
+                evidence = self._collect_handoff_evidence()
+                self.ticket_tools.finish_agent_run(
+                    agent_run_id,
+                    "FAILED",
+                    {
+                        "status": "FAILED",
+                        "summary": f"Error delegating to {agent_name}: {str(e)}",
+                    },
+                    evidence,
+                )
             return f"Error delegating to {agent_name}: {str(e)}"
 
     def _build_delegation_prompt(self, agent_name: str, work_item_id: str, task_description: str) -> str:
@@ -95,22 +286,124 @@ Task:
 Before you finish, you MUST:
 1. Check the current work item with `get_work_item` so your answer reflects the latest status, shared context, artifacts, and comments.
 2. Complete the delegated task as far as your role allows.
-3. Return a final section named `Context update for Orchestrator` with concise handoff context: decisions made, files changed or inspected, relevant artifacts, relevant commit hashes, blockers, and assumptions.
-4. State whether your delegated task is finished.
-5. If the work is not finished, state exactly which next agent should be called and why.
+3. Finish by calling `finish_agent_run` with status, summary, and any relevant details, decisions, blockers, and intentional artifacts.
 
 Do not call `append_shared_context`. Only the Orchestrator writes shared context after reviewing your response.
+Do not choose the next agent. The Orchestrator decides workflow routing.
 """
 
-    def _append_agent_handoff_context(self, work_item_id: str, agent_name: str, response: str) -> None:
-        context = (
-            f"Delegated agent: {agent_name}\n"
-            "The following response was returned after the agent was instructed to check "
-            "the work item and provide a context update for the Orchestrator.\n\n"
-            f"{response}"
-        )
+    def _check_clean_git_status(self) -> str:
+        result = self._run_git(["status", "--porcelain"])
+        if result["returncode"] != 0:
+            return f"Error checking git status before delegation: {result['stderr']}"
+        status = result["stdout"].strip()
+        if status:
+            return (
+                "⛔ BLOCK: Cannot delegate to another agent while the git worktree is dirty.\n"
+                "Commit, stash, or revert the current changes first.\n\n"
+                f"Git status:\n{status}"
+            )
+        return ""
+
+    def _collect_handoff_evidence(self) -> dict:
+        return {
+            "branch": self._git_output(["branch", "--show-current"]) or "Detached HEAD",
+            "status_short": self._git_output(["status", "--short"]),
+            "diff_stat": self._git_output(["diff", "--stat"]),
+            "changed_files": self._git_output(["diff", "--name-only"]).splitlines(),
+            "latest_commit": self._git_output(["rev-parse", "--short", "HEAD"]),
+        }
+
+    def _run_git(self, args: list[str]) -> dict:
+        try:
+            result = subprocess.run(
+                ["git", *args],
+                cwd=settings.project_path,
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+        except Exception as e:
+            return {"returncode": 1, "stdout": "", "stderr": str(e)}
+        return {
+            "returncode": result.returncode,
+            "stdout": result.stdout.strip(),
+            "stderr": result.stderr.strip(),
+        }
+
+    def _git_output(self, args: list[str]) -> str:
+        result = self._run_git(args)
+        return result["stdout"] if result["returncode"] == 0 else ""
+
+    def _append_agent_handoff_context(
+        self,
+        work_item_id: str,
+        agent_name: str,
+        response: str,
+        evidence: dict | None = None,
+        completion: dict | None = None,
+    ) -> None:
+        completion = completion if completion is not None else self._parse_agent_completion(response)
+        context = self._format_handoff_context(agent_name, response, completion, evidence or {})
         result = self.ticket_tools.append_shared_context(work_item_id, agent_name, context)
         logger.info("Shared context append result for work item #%s: %s", work_item_id, result)
+
+    def _parse_agent_completion(self, response: str) -> dict | None:
+        marker = "[AGENT_RUN_COMPLETE]"
+        if marker not in response:
+            return None
+        payload = response.split(marker, 1)[1].strip()
+        try:
+            parsed = json.loads(payload)
+        except json.JSONDecodeError:
+            return None
+        return parsed if isinstance(parsed, dict) else None
+
+    def _format_handoff_context(
+        self,
+        agent_name: str,
+        response: str,
+        completion: dict | None,
+        evidence: dict,
+    ) -> str:
+        lines = [f"Delegated agent: {agent_name}"]
+        if completion:
+            lines.extend([
+                f"Status: {completion.get('status', 'UNKNOWN')}",
+                f"Summary: {completion.get('summary', '')}",
+            ])
+            if completion.get("details"):
+                lines.extend(["", "Details:", str(completion["details"])])
+            for label, key in (
+                ("Decisions", "decisions"),
+                ("Blockers", "blockers"),
+                ("Artifacts", "artifacts"),
+            ):
+                values = completion.get(key) or []
+                if values:
+                    lines.append("")
+                    lines.append(f"{label}:")
+                    for value in values:
+                        lines.append(f"- {value}")
+        else:
+            lines.extend([
+                "Status: UNKNOWN",
+                "",
+                "Raw response:",
+                response,
+            ])
+
+        lines.extend([
+            "",
+            "Automatic evidence:",
+            f"- Branch: {evidence.get('branch') or 'Unknown'}",
+            f"- Latest commit: {evidence.get('latest_commit') or 'Unknown'}",
+            f"- Git status: {evidence.get('status_short') or 'Clean'}",
+            f"- Changed files: {', '.join(evidence.get('changed_files') or []) or 'None'}",
+            f"- Diff stat: {evidence.get('diff_stat') or 'No diff'}",
+        ])
+        return "\n".join(lines)
 
     def _get_system_message(self) -> str:
         return f"""You are the Orchestrator Agent for the Ariadne V-Model.

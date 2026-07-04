@@ -14,13 +14,14 @@ class RequirementsAgent(BaseAgent):
     This corresponds to the 'Requirement Gathering' phase of the V-Model.
     """
 
-    def __init__(self, ticket_tools=None, file_tools=None, git_tools=None):
+    def __init__(self, ticket_tools=None, file_tools=None, git_tools=None, agent_run_tools=None):
         super().__init__()
 
         try:
             self.ticket_tools = ticket_tools or DependencyRegistry.get_work_item_tools()
             self.file_tools = file_tools or DependencyRegistry.get_file_tools()
             self.git_tools = git_tools or DependencyRegistry.get_git_tools()
+            self.agent_run_tools = agent_run_tools or DependencyRegistry.get_agent_run_tools()
             
         except Exception as e:
             logger.error(f"Failed to initialize tools: {e}")
@@ -28,7 +29,7 @@ class RequirementsAgent(BaseAgent):
 
         raw_tools = build_agent_tools(
             "Requirements",
-            [self.ticket_tools, self.file_tools, self.git_tools],
+            [self.ticket_tools, self.file_tools, self.git_tools, self.agent_run_tools],
         )
         self.tools = wrap_tools_with_error_handling(raw_tools)
 
@@ -55,6 +56,8 @@ class RequirementsAgent(BaseAgent):
 8. **Explicit Linking:** Once you create or update the markdown document, you MUST use the `add_link` tool to attach the artifact path (e.g., `docs/requirements/REQ-005.md`) to the current ticket. This creates a permanent, clickable reference.
 9. **Inline Dependency Tracing:** For every individual requirement (UR, FR, NFR), you MUST evaluate if it depends on an external system or another requirement. If it does, simply append the tag `[PENDING LINK]` to the end of that specific requirement line. Do NOT attempt to search file contents for IDs or invent names; a specialized Linking Agent will resolve these tags later.
 10. **Blocked State for Open Questions:** If you write ANY text in the 'Open Questions / Missing Context' section of the template, you are FORBIDDEN from moving the ticket to the success state. You MUST move the ticket status to `Blocked` and stop execution immediately.
+
+{self._completion_protocol()}
 
 ### Available Tools:
 {self.tool_docs}

@@ -4,6 +4,8 @@ import json
 from typing import List
 
 from src.ariadne.work_items.models import (
+    AgentRun,
+    AgentRunStatus,
     ArtifactLink,
     Comment,
     GateStatus,
@@ -104,6 +106,21 @@ class SQLiteWorkItemStore(WorkItemStore):
                     FOREIGN KEY (ticket_id) REFERENCES tickets (id)
                 )
             ''')
+
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS agent_runs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ticket_id INTEGER NOT NULL,
+                    agent_name TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    task_description TEXT DEFAULT '',
+                    completion_payload TEXT DEFAULT '{}',
+                    evidence TEXT DEFAULT '{}',
+                    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    finished_at TEXT DEFAULT '',
+                    FOREIGN KEY (ticket_id) REFERENCES tickets (id)
+                )
+            ''')
             
             conn.commit()
 
@@ -142,6 +159,16 @@ class SQLiteWorkItemStore(WorkItemStore):
             except Exception:
                 logger.warning("Invalid tool log entry in work item row; skipping entry.")
         return entries
+
+    def _parse_json_object(self, raw_json: str | None, field_name: str) -> dict:
+        if not raw_json:
+            return {}
+        try:
+            parsed = json.loads(raw_json)
+        except json.JSONDecodeError:
+            logger.warning("Invalid %s JSON in work item row; returning empty dict.", field_name)
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
 
     def create_work_item(self, title: str, description: str, type: WorkItemType, priority: str) -> str:
         with self._get_connection() as conn:
@@ -285,6 +312,48 @@ class SQLiteWorkItemStore(WorkItemStore):
             if comment:
                 self.post_comment(work_item_id, comment)
 
+    def delete_artifact_link(
+        self,
+        work_item_id: str,
+        title: str | None = None,
+        url: str | None = None,
+    ) -> None:
+        conditions = ["ticket_id = ?"]
+        values = [work_item_id]
+        if title is not None:
+            conditions.append("title = ?")
+            values.append(title)
+        if url is not None:
+            conditions.append("url = ?")
+            values.append(url)
+        if len(conditions) == 1:
+            raise ValueError("A title or URL is required to delete a link.")
+
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                f"DELETE FROM artifacts WHERE {' AND '.join(conditions)}",
+                values,
+            )
+            if cursor.rowcount == 0:
+                raise ValueError(f"No matching artifact link found for work item {work_item_id}.")
+            self._touch_work_item(cursor, work_item_id)
+            conn.commit()
+
+    def remove_comment(self, work_item_id: str, comment_id: str) -> None:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "DELETE FROM comments WHERE ticket_id = ? AND id = ?",
+                (work_item_id, comment_id),
+            )
+            if cursor.rowcount == 0:
+                raise ValueError(
+                    f"Comment {comment_id} was not found on work item {work_item_id}."
+                )
+            self._touch_work_item(cursor, work_item_id)
+            conn.commit()
+
     def add_commit_hash(self, work_item_id: str, commit_hash: str) -> None:
         commit_hash = commit_hash.strip()
         if not commit_hash:
@@ -328,6 +397,95 @@ class SQLiteWorkItemStore(WorkItemStore):
                 (new_context, work_item_id)
             )
             conn.commit()
+
+    def start_agent_run(
+        self,
+        work_item_id: str,
+        agent_name: str,
+        task_description: str,
+    ) -> str:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT id FROM tickets WHERE id = ?", (work_item_id,))
+            if not cursor.fetchone():
+                raise ValueError(f"Work item {work_item_id} not found.")
+
+            cursor.execute(
+                """
+                INSERT INTO agent_runs (
+                    ticket_id, agent_name, status, task_description
+                ) VALUES (?, ?, ?, ?)
+                """,
+                (
+                    work_item_id,
+                    agent_name,
+                    AgentRunStatus.RUNNING.value,
+                    task_description,
+                ),
+            )
+            self._touch_work_item(cursor, work_item_id)
+            conn.commit()
+            return str(cursor.lastrowid)
+
+    def finish_agent_run(
+        self,
+        agent_run_id: str,
+        status: AgentRunStatus,
+        completion_payload: dict,
+        evidence: dict,
+    ) -> None:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                UPDATE agent_runs
+                SET status = ?,
+                    completion_payload = ?,
+                    evidence = ?,
+                    finished_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (
+                    status.value,
+                    json.dumps(completion_payload, sort_keys=True),
+                    json.dumps(evidence, sort_keys=True),
+                    agent_run_id,
+                ),
+            )
+            if cursor.rowcount == 0:
+                raise ValueError(f"Agent run {agent_run_id} not found.")
+            cursor.execute("SELECT ticket_id FROM agent_runs WHERE id = ?", (agent_run_id,))
+            row = cursor.fetchone()
+            if row:
+                self._touch_work_item(cursor, str(row[0]))
+            conn.commit()
+
+    def list_agent_runs(self, work_item_id: str) -> List[AgentRun]:
+        with self._get_connection() as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT * FROM agent_runs WHERE ticket_id = ? ORDER BY started_at ASC, id ASC",
+                (work_item_id,),
+            )
+            rows = cursor.fetchall()
+            return [
+                AgentRun(
+                    id=str(row["id"]),
+                    work_item_id=str(row["ticket_id"]),
+                    agent_name=row["agent_name"],
+                    status=AgentRunStatus(row["status"]),
+                    started_at=row["started_at"] or "",
+                    finished_at=row["finished_at"] or "",
+                    task_description=row["task_description"] or "",
+                    completion_payload=self._parse_json_object(
+                        row["completion_payload"],
+                        "completion_payload",
+                    ),
+                    evidence=self._parse_json_object(row["evidence"], "evidence"),
+                )
+                for row in rows
+            ]
 
     def add_tool_log(
         self,

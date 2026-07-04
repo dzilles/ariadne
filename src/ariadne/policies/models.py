@@ -19,6 +19,7 @@ class ToolPolicy(BaseModel):
 
     checks: list[PolicyCheck] = Field(default_factory=list)
     field_requirements: list[dict[str, Any]] = Field(default_factory=list)
+    return_direct: bool = False
 
 
 class AgentPolicy(BaseModel):

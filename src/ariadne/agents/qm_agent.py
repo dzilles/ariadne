@@ -13,18 +13,22 @@ class QMAgent(BaseAgent):
     It checks requirements, architecture, and other documents for completeness and open questions.
     """
 
-    def __init__(self, ticket_tools=None, file_tools=None):
+    def __init__(self, ticket_tools=None, file_tools=None, agent_run_tools=None):
         super().__init__()
 
         try:
             self.ticket_tools = ticket_tools or DependencyRegistry.get_work_item_tools()
             self.file_tools = file_tools or DependencyRegistry.get_file_tools()
+            self.agent_run_tools = agent_run_tools or DependencyRegistry.get_agent_run_tools()
             
         except Exception as e:
             logger.error(f"Failed to initialize tools: {e}")
             raise
 
-        raw_tools = build_agent_tools("QM", [self.ticket_tools, self.file_tools])
+        raw_tools = build_agent_tools(
+            "QM",
+            [self.ticket_tools, self.file_tools, self.agent_run_tools],
+        )
         self.tools = wrap_tools_with_error_handling(raw_tools)
 
         self.tool_docs = build_tool_docs(raw_tools)
@@ -48,6 +52,8 @@ class QMAgent(BaseAgent):
      - DO NOT approve the gate.
      - Move the ticket status to `Blocked`.
      - Post a comment explicitly listing the open questions and tagging the responsible party for clarification.
+
+{self._completion_protocol()}
 
 ### Available Tools:
 {self.tool_docs}

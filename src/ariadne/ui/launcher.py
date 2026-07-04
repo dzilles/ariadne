@@ -144,6 +144,11 @@ class AriadneTUI:
                 tui.controller.set_tool_approval_enabled(value)
                 return
 
+            if field_name == "agent_policy_path":
+                from src.ariadne.policies.loader import reset_policy_cache
+
+                reset_policy_cache()
+
             # Clear and reinitialize agents for other settings
             tui.controller.clear_agent_cache()
             active_agent = tui.ui.get_active_agent()
@@ -284,22 +289,22 @@ class AriadneTUI:
             self._report_error(result.message)
 
     async def _cmd_save(self) -> None:
-        """Save chat history for current agent."""
+        """Save prompt and chat context for all agents."""
         response = self.ui.conversation.add_bot_response()
         self._complete_command(response, self.controller.save_chat_history())
 
     async def _cmd_load(self) -> None:
-        """Load chat history for current agent."""
+        """Load prompt and chat context for all agents."""
         response = self.ui.conversation.add_bot_response()
         self._complete_command(response, self.controller.load_chat_history())
 
     async def _cmd_history(self) -> None:
-        """Show history status for all agents."""
+        """Show context status for all agents."""
         response = self.ui.conversation.add_bot_response()
         self._complete_command(response, self.controller.get_history_status())
 
     async def _cmd_clear_history(self) -> None:
-        """Clear saved history for current agent."""
+        """Clear saved context for current agent."""
         response = self.ui.conversation.add_bot_response()
         self._complete_command(response, self.controller.clear_chat_history())
 

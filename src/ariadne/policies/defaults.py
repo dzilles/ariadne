@@ -4,18 +4,26 @@ The defaults are code-backed so Ariadne works out of the box. Operators can
 override them with the JSON file configured by `settings.agent_policy_path`.
 """
 
+READ_ONLY_TOOL_NAMES = (
+    "get_work_item",
+    "get_work_item_info",
+    "get_ticket",
+    "list_work_items",
+    "read_file",
+    "list_files",
+    "search_files",
+    "search_codebase",
+    "git_diff",
+    "get_status",
+    "get_current_branch",
+)
+
 DEFAULT_POLICY = {
     "tools": {
-        "get_work_item": {"checks": []},
-        "get_work_item_info": {"checks": []},
-        "get_ticket": {"checks": []},
-        "list_work_items": {"checks": []},
+        **{tool_name: {"checks": []} for tool_name in READ_ONLY_TOOL_NAMES},
+        "create_work_item": {"checks": ["user_permission"]},
         "activate_work_item": {"checks": []},
-        "read_file": {"checks": []},
-        "list_files": {"checks": []},
-        "search_files": {"checks": []},
-        "get_status": {"checks": []},
-        "get_current_branch": {"checks": []},
+        "finish_agent_run": {"checks": [], "return_direct": True},
         "delegate_to_agent": {"checks": ["user_permission"]},
         "write_file": {"checks": ["user_permission", "work_item_state"]},
         "run_shell_command": {"checks": ["user_permission", "work_item_state"]},
@@ -29,6 +37,9 @@ DEFAULT_POLICY = {
         "approve_gate": {"checks": ["work_item_state"]},
         "reject_gate": {"checks": ["work_item_state"]},
         "add_link": {"checks": ["work_item_state"]},
+        "delete_link": {"checks": ["user_permission"]},
+        "remove_comment": {"checks": ["user_permission"]},
+        "delete_agent_context": {"checks": ["user_permission"]},
         "add_commit_hash": {"checks": ["work_item_state"]},
         "append_shared_context": {"checks": ["work_item_state"]},
         "update_git_metadata": {"checks": ["work_item_state"]},
@@ -38,6 +49,7 @@ DEFAULT_POLICY = {
             "prompt": "src/ariadne/prompts/orchestrator.md",
             "tools": [
                 "list_work_items",
+                "create_work_item",
                 "get_work_item",
                 "get_work_item_info",
                 "activate_work_item",
@@ -46,10 +58,15 @@ DEFAULT_POLICY = {
                 "approve_gate",
                 "reject_gate",
                 "add_link",
+                "delete_link",
+                "remove_comment",
+                "delete_agent_context",
                 "append_shared_context",
                 "update_git_metadata",
                 "read_file",
                 "list_files",
+                "search_codebase",
+                "git_diff",
                 "delegate_to_agent",
             ],
         },
@@ -73,6 +90,7 @@ DEFAULT_POLICY = {
                 "create_branch",
                 "add_files",
                 "commit_changes",
+                "finish_agent_run",
             ],
         },
         "QM": {
@@ -86,6 +104,7 @@ DEFAULT_POLICY = {
                 "read_file",
                 "list_files",
                 "search_files",
+                "finish_agent_run",
             ],
         },
         "Architect": {
@@ -109,6 +128,7 @@ DEFAULT_POLICY = {
                 "create_branch",
                 "add_files",
                 "commit_changes",
+                "finish_agent_run",
             ],
         },
         "Developer": {
@@ -130,6 +150,7 @@ DEFAULT_POLICY = {
                 "update_git_metadata",
                 "post_comment",
                 "update_status",
+                "finish_agent_run",
             ],
         },
         "Tester": {
@@ -150,6 +171,7 @@ DEFAULT_POLICY = {
                 "update_git_metadata",
                 "post_comment",
                 "update_status",
+                "finish_agent_run",
             ],
         },
         "QA": {
@@ -162,6 +184,7 @@ DEFAULT_POLICY = {
                 "write_file",
                 "post_comment",
                 "update_status",
+                "finish_agent_run",
             ],
         },
     },

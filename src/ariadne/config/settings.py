@@ -110,13 +110,10 @@ class Settings(BaseSettings):
 
     tool_audit_result_max_chars: int = Field(default=1000, description="Maximum result characters stored per tool audit log entry")
 
-    
-
-    # Sandbox Settings
-
-    sandbox_mode: bool = Field(default=True, description="Run file/git/shell operations in an isolated Docker container")
-
-    sandbox_dir: str = Field(default=".ariadne/sandbox/workspace", description="Local path to the sandbox workspace")
+    agent_policy_path: str = Field(
+        default=".ariadne/agent_policy.json",
+        description="Optional JSON policy file overriding agent tool access and checks",
+    )
 
 
 

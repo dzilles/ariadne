@@ -36,7 +36,7 @@ def ensure_history_dir() -> None:
 
 
 def save_history(agent: Any, agent_name: str) -> bool:
-    """Save the agent's chat history to a file.
+    """Save the agent's full prompt and chat context to a file.
 
     Args:
         agent: The agent instance with a get_history() method
@@ -45,19 +45,19 @@ def save_history(agent: Any, agent_name: str) -> bool:
     Returns:
         True if successful, False otherwise
     """
-    if not hasattr(agent, "get_history"):
-        logger.warning(f"Agent {agent_name} does not support history export")
+    if not hasattr(agent, "get_context") and not hasattr(agent, "get_history"):
+        logger.warning(f"Agent {agent_name} does not support context export")
         return False
 
     try:
         ensure_history_dir()
         filename = get_history_filename(agent_name)
-        history = agent.get_history()
+        context = agent.get_context() if hasattr(agent, "get_context") else agent.get_history()
 
         with open(filename, "w", encoding="utf-8") as f:
-            json.dump(history, f, indent=2)
+            json.dump(context, f, indent=2)
 
-        logger.info(f"Saved {len(history)} messages to {filename}")
+        logger.info(f"Saved context for {agent_name} to {filename}")
         return True
 
     except Exception as e:
@@ -95,8 +95,8 @@ def load_history(agent: Any, agent_name: str) -> bool:
         HistoryFormatError: If the history file contains invalid JSON
         HistoryError: For other loading failures (e.g., IO errors)
     """
-    if not hasattr(agent, "load_history"):
-        logger.warning(f"Agent {agent_name} does not support history import")
+    if not hasattr(agent, "load_context") and not hasattr(agent, "load_history"):
+        logger.warning(f"Agent {agent_name} does not support context import")
         return False
 
     filename = get_history_filename(agent_name)
@@ -107,10 +107,14 @@ def load_history(agent: Any, agent_name: str) -> bool:
 
     try:
         with open(filename, "r", encoding="utf-8") as f:
-            history = json.load(f)
+            context = json.load(f)
 
-        agent.load_history(history)
-        logger.info(f"Loaded {len(history)} messages from {filename}")
+        if hasattr(agent, "load_context"):
+            agent.load_context(context)
+        else:
+            history = context.get("chat_history", []) if isinstance(context, dict) else context
+            agent.load_history(history)
+        logger.info(f"Loaded context for {agent_name} from {filename}")
         return True
 
     except json.JSONDecodeError as e:
@@ -174,7 +178,8 @@ def get_history_summary(agent_name: str) -> dict | None:
     try:
         stat = os.stat(filename)
         with open(filename, "r", encoding="utf-8") as f:
-            history = json.load(f)
+            context = json.load(f)
+        history = context.get("chat_history", []) if isinstance(context, dict) else context
 
         return {
             "message_count": len(history),

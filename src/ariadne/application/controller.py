@@ -73,6 +73,14 @@ class AriadneApplicationController:
         self._message_queue: list[QueuedMessage] = []
         self._draining_queue = False
 
+    def _get_or_create_agent(self, agent_name: str) -> Any:
+        if agent_name not in self._agent_instances:
+            agent_class = self._agent_classes.get(agent_name)
+            if not agent_class:
+                raise KeyError(f"Unknown agent class: {agent_name}")
+            self._agent_instances[agent_name] = agent_class()
+        return self._agent_instances[agent_name]
+
     @property
     def current_agent_name(self) -> str | None:
         """Return the active agent name."""
@@ -108,14 +116,10 @@ class AriadneApplicationController:
             return CommandResult("No agent selected.")
 
         self._init_error = None
-        if agent_name not in self._agent_instances:
-            try:
-                agent_class = self._agent_classes.get(agent_name)
-                if not agent_class:
-                    return self._store_init_error(f"Unknown agent class: {agent_name}")
-                self._agent_instances[agent_name] = agent_class()
-            except Exception as e:
-                return self._store_init_error(f"Failed to initialize {agent_name}: {e}")
+        try:
+            self._get_or_create_agent(agent_name)
+        except Exception as e:
+            return self._store_init_error(f"Failed to initialize {agent_name}: {e}")
 
         self._current_agent = self._agent_instances.get(agent_name)
         self._current_agent_name = agent_name
@@ -293,12 +297,16 @@ class AriadneApplicationController:
         if self._current_agent:
             from .agent_runner import run_agent
 
-            await run_agent(
-                message,
-                self._current_agent,
-                emit=emit,
-                is_cancelled=is_cancelled,
-            )
+            try:
+                await run_agent(
+                    message,
+                    self._current_agent,
+                    emit=emit,
+                    is_cancelled=is_cancelled,
+                )
+            finally:
+                if self._current_agent_name:
+                    save_history(self._current_agent, self._current_agent_name)
         elif self._init_error:
             emit(RunEvent("error", message=self._init_error))
         else:
@@ -334,44 +342,60 @@ class AriadneApplicationController:
         return result
 
     def save_chat_history(self) -> CommandResult:
-        """Save chat history for the active agent."""
-        if not self._current_agent or not self._current_agent_name:
-            return CommandResult("No agent selected. Use /agent first.", is_error=True)
+        """Save prompt and chat context for all agents."""
+        saved = []
+        failed = []
+        for agent in self.list_agents():
+            try:
+                instance = self._get_or_create_agent(agent.name)
+                if save_history(instance, agent.name):
+                    saved.append(agent.name)
+                else:
+                    failed.append(agent.name)
+            except Exception as e:
+                logger.warning("Failed to save context for %s: %s", agent.name, e)
+                failed.append(agent.name)
 
-        if save_history(self._current_agent, self._current_agent_name):
-            return CommandResult(f"Chat history saved for **{self._current_agent_name}**")
-        return CommandResult("Failed to save chat history", is_error=True)
-
-    def load_chat_history(self) -> CommandResult:
-        """Load chat history for the active agent."""
-        if not self._current_agent or not self._current_agent_name:
-            return CommandResult("No agent selected. Use /agent first.", is_error=True)
-
-        try:
-            if load_history(self._current_agent, self._current_agent_name):
-                summary = get_history_summary(self._current_agent_name)
-                count = summary.get("message_count", 0) if summary else 0
-                return CommandResult(
-                    f"Loaded {count} messages for **{self._current_agent_name}**"
-                )
-            return CommandResult("Current agent does not support history loading.", is_error=True)
-        except HistoryNotFoundError:
+        if failed:
             return CommandResult(
-                f"No saved history found for **{self._current_agent_name}**"
-            )
-        except HistoryFormatError as e:
-            return CommandResult(
-                f"Failed to load history: Invalid format ({str(e)})",
+                f"Saved contexts for {len(saved)} agent(s). Failed: {', '.join(failed)}",
                 is_error=True,
             )
-        except HistoryError as e:
-            return CommandResult(f"Failed to load history: {str(e)}", is_error=True)
-        except Exception as e:
-            return CommandResult(f"An unexpected error occurred: {str(e)}", is_error=True)
+        return CommandResult(f"Saved contexts for {len(saved)} agent(s).")
+
+    def load_chat_history(self) -> CommandResult:
+        """Load prompt and chat context for all agents."""
+        loaded = []
+        missing = []
+        failed = []
+        for agent in self.list_agents():
+            try:
+                instance = self._get_or_create_agent(agent.name)
+                if load_history(instance, agent.name):
+                    loaded.append(agent.name)
+                else:
+                    failed.append(agent.name)
+            except HistoryNotFoundError:
+                missing.append(agent.name)
+            except (HistoryFormatError, HistoryError, Exception) as e:
+                logger.warning("Failed to load context for %s: %s", agent.name, e)
+                failed.append(agent.name)
+
+        if failed:
+            return CommandResult(
+                f"Loaded contexts for {len(loaded)} agent(s). Failed: {', '.join(failed)}",
+                is_error=True,
+            )
+        if not loaded:
+            return CommandResult("No saved agent contexts found.")
+        detail = f"Loaded contexts for {len(loaded)} agent(s)."
+        if missing:
+            detail += f" Missing: {', '.join(missing)}"
+        return CommandResult(detail)
 
     def get_history_status(self) -> CommandResult:
         """Return history status for all agents."""
-        lines = ["**Chat History Status:**\n"]
+        lines = ["**Agent Context Status:**\n"]
         for agent in self.list_agents():
             summary = get_history_summary(agent.name)
             active = " (active)" if agent.name == self._current_agent_name else ""
@@ -379,23 +403,23 @@ class AriadneApplicationController:
                 count = summary.get("message_count", 0)
                 lines.append(f"- `{agent.name}`{active}: {count} messages saved")
             else:
-                lines.append(f"- `{agent.name}`{active}: No saved history")
+                lines.append(f"- `{agent.name}`{active}: No saved context")
 
-        lines.append("\nUse `/save` to save or `/load` to restore history.")
+        lines.append("\nUse `/save` to save or `/load` to restore agent context.")
         return CommandResult("\n".join(lines))
 
     def clear_chat_history(self) -> CommandResult:
-        """Clear saved and in-memory history for the active agent."""
+        """Clear saved and in-memory context for the active agent."""
         if not self._current_agent_name:
             return CommandResult("No agent selected. Use /agent first.", is_error=True)
 
         if not clear_history(self._current_agent_name):
-            return CommandResult("Failed to clear chat history", is_error=True)
+            return CommandResult("Failed to clear saved context", is_error=True)
 
         if self._current_agent and hasattr(self._current_agent, "clear_history"):
             self._current_agent.clear_history()
 
-        return CommandResult(f"History cleared for **{self._current_agent_name}**")
+        return CommandResult(f"Context cleared for **{self._current_agent_name}**")
 
     def get_secret_completions(self, context: str = "") -> list[str]:
         """Return vault key completions for the UI."""

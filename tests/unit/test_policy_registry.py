@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 
+from src.ariadne.policies.defaults import DEFAULT_POLICY, READ_ONLY_TOOL_NAMES
 from src.ariadne.policies import registry
 
 
@@ -31,3 +32,37 @@ def test_build_tool_docs_uses_resolved_policy_tools(monkeypatch):
     assert "Allowed tool description." in docs
     assert "unconfigured_tool" not in docs
     assert "This tool should not appear" not in docs
+
+
+def test_orchestrator_policy_excludes_direct_mutation_and_merge_tools():
+    tools = set(DEFAULT_POLICY["agents"]["Orchestrator"]["tools"])
+
+    assert "write_file" not in tools
+    assert "edit_file" not in tools
+    assert "execute_command" not in tools
+    assert "run_shell_command" not in tools
+    assert "force_merge" not in tools
+
+
+def test_read_only_tools_do_not_require_permission_or_work_item_context():
+    policies = DEFAULT_POLICY["tools"]
+
+    for tool_name in READ_ONLY_TOOL_NAMES:
+        checks = set(policies[tool_name]["checks"])
+        assert "user_permission" not in checks
+        assert "work_item_state" not in checks
+        assert "work_item_transition" not in checks
+        assert "work_item_field" not in checks
+
+
+def test_completion_tool_is_available_to_delegated_agents_only():
+    for agent_name, policy in DEFAULT_POLICY["agents"].items():
+        tools = set(policy["tools"])
+        if agent_name == "Orchestrator":
+            assert "finish_agent_run" not in tools
+        else:
+            assert "finish_agent_run" in tools
+
+    completion_policy = DEFAULT_POLICY["tools"]["finish_agent_run"]
+    assert completion_policy["checks"] == []
+    assert completion_policy["return_direct"] is True

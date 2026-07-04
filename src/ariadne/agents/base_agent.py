@@ -1,5 +1,5 @@
 import logging
-from typing import List
+from typing import Any, List
 
 from langchain_core.messages import messages_to_dict, messages_from_dict, HumanMessage, AIMessage, SystemMessage
 from langgraph.prebuilt import create_react_agent
@@ -43,9 +43,39 @@ class BaseAgent:
         self.current_prompt = f"{self.system_message}\n\n{instructions}"
         logger.info("Agent mission instructions updated.")
 
+    def _completion_protocol(self) -> str:
+        """Instructions for agents that return control to the Orchestrator."""
+        return """### Completion Protocol
+When your delegated task is complete or blocked, call `finish_agent_run(...)` as your final tool call.
+Use `SUCCESS` when your delegated task is complete.
+Use `FAILED` when you cannot complete it, are blocked, or need Orchestrator/user intervention.
+You provide only semantic handoff information: `status`, `summary`, optional `details`, `decisions`, `blockers`, and intentional `artifacts`.
+Do not choose the next agent or next workflow action. The Orchestrator decides that.
+Do not manually report git status, changed files, commits, or diff stats. Those are collected automatically.
+After `finish_agent_run` returns, respond to the user with exactly that returned text."""
+
     def get_history(self) -> List[dict]:
         """Returns the current chat history as a serializable list of dicts."""
         return messages_to_dict(self.chat_history)
+
+    def get_context(self) -> dict[str, Any]:
+        """Return the full prompt and chat context for persistence."""
+        return {
+            "schema_version": 2,
+            "system_message": self.system_message,
+            "current_prompt": self.current_prompt,
+            "chat_history": self.get_history(),
+        }
+
+    def load_context(self, context_data: dict[str, Any] | list[dict]) -> None:
+        """Load a full prompt/chat context, accepting legacy history lists."""
+        if isinstance(context_data, list):
+            self.load_history(context_data)
+            return
+
+        self.system_message = str(context_data.get("system_message") or self.system_message)
+        self.current_prompt = str(context_data.get("current_prompt") or self.system_message)
+        self.load_history(context_data.get("chat_history", []))
 
     def load_history(self, history_data: List[dict]):
         """Loads chat history from a list of dicts."""

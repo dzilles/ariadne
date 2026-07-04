@@ -2,6 +2,7 @@ import logging
 from typing import Any, Dict, Type, TypeVar
 
 from src.ariadne.tools.file_tools import FileAgentTools
+from src.ariadne.tools.agent_run_tools import AgentRunTools
 from src.ariadne.tools.git_tools import GitAgentTools
 from src.ariadne.tools.shell_tools import ShellAgentTools
 from src.ariadne.work_items.adapters.sqlite import SQLiteWorkItemStore
@@ -45,6 +46,10 @@ class DependencyRegistry:
     @classmethod
     def get_file_tools(cls) -> FileAgentTools:
         return cls.get(FileAgentTools)
+
+    @classmethod
+    def get_agent_run_tools(cls) -> AgentRunTools:
+        return cls.get(AgentRunTools)
 
     @classmethod
     def get_git_tools(cls) -> GitAgentTools:

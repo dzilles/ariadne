@@ -1,7 +1,7 @@
 import argparse
 import sys
 from src.ariadne.ui.launcher import main as tui_main
-from src.ariadne.cli.init import setup_sandbox
+from src.ariadne.config.init import init_config
 from src.ariadne.infrastructure.container import DependencyRegistry
 from rich.console import Console
 from rich.table import Table
@@ -81,7 +81,7 @@ def main():
     subparsers.add_parser("tui", help="Launch the interactive Terminal UI")
     
     # Init command
-    subparsers.add_parser("init", help="Initialize the sandbox")
+    subparsers.add_parser("init", help="Initialize Ariadne configuration")
     
     # Work item commands
     subparsers.add_parser("list-work-items", help="List all work items in a table view")
@@ -113,7 +113,7 @@ def main():
             print("\nGoodbye!")
             sys.exit(0)
     elif args.command == "init":
-        setup_sandbox()
+        init_config()
     elif args.command == "list-work-items":
         list_work_items()
     elif args.command == "list-tickets":

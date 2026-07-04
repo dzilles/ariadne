@@ -1,4 +1,4 @@
-from src.ariadne.work_items.models import GateStatus, WorkItemStatus, WorkItemStore
+from src.ariadne.work_items.models import AgentRunStatus, GateStatus, WorkItemStatus, WorkItemStore
 from src.ariadne.workflows.enforcement import jit_vmodel_guard
 from src.ariadne.runtime.context import (
     get_active_work_item_id,
@@ -14,6 +14,32 @@ class WorkItemTools:
 
     def __init__(self, system: WorkItemStore):
         self.system = system
+
+    def create_work_item(
+        self,
+        title: str,
+        description: str,
+        type: str = "Task",
+        priority: str = "Medium",
+    ) -> str:
+        """
+        Create a new work item in Backlog status.
+        """
+        try:
+            from src.ariadne.work_items.models import WorkItemType
+
+            work_item_type = WorkItemType(type)
+            work_item_id = self.system.create_work_item(
+                title=title,
+                description=description,
+                type=work_item_type,
+                priority=priority,
+            )
+            return f"Success: Created work item #{work_item_id}"
+        except ValueError:
+            return f"Error: Invalid work item type '{type}'. Allowed: {[t.value for t in WorkItemType]}"
+        except Exception as e:
+            return f"Error creating work item: {e}"
 
     def get_work_item(self, work_item_id: str) -> str:
         """
@@ -50,6 +76,20 @@ class WorkItemTools:
                         lines.append(f"  Result: {entry.result[:200]}")
             else:
                 lines.append("No tool logs recorded.")
+
+            try:
+                agent_runs = self.system.list_agent_runs(work_item_id)
+            except Exception:
+                agent_runs = []
+            lines.append("\n--- Agent Runs ---")
+            if agent_runs:
+                for run in agent_runs[-5:]:
+                    summary = run.completion_payload.get("summary", "")
+                    lines.append(
+                        f"- #{run.id} {run.agent_name} [{run.status.value}] {summary}"
+                    )
+            else:
+                lines.append("No agent runs recorded.")
 
             lines.extend([
                 "\n--- Comments ---"
@@ -169,6 +209,27 @@ class WorkItemTools:
         except Exception as e:
             return f"Error adding link: {e}"
 
+    def delete_link(
+        self,
+        work_item_id: str,
+        title: str | None = None,
+        url: str | None = None,
+    ) -> str:
+        """Delete artifact links from a work item by exact title and/or URL."""
+        try:
+            self.system.delete_artifact_link(work_item_id, title=title, url=url)
+            return f"Success: Deleted matching link from work item {work_item_id}"
+        except Exception as e:
+            return f"Error deleting link: {e}"
+
+    def remove_comment(self, work_item_id: str, comment_id: str) -> str:
+        """Remove a comment from a work item by comment ID."""
+        try:
+            self.system.remove_comment(work_item_id, comment_id)
+            return f"Success: Removed comment {comment_id} from work item {work_item_id}"
+        except Exception as e:
+            return f"Error removing comment: {e}"
+
     @jit_vmodel_guard
     def add_commit_hash(self, work_item_id: str, commit_hash: str) -> str:
         """Record a git commit hash that is relevant to this work item."""
@@ -186,6 +247,39 @@ class WorkItemTools:
             return f"Success: Appended shared context to work item {work_item_id}"
         except Exception as e:
             return f"Error appending shared context: {e}"
+
+    def start_agent_run(self, work_item_id: str, agent_name: str, task_description: str) -> str:
+        """Record that an agent run has started for this work item."""
+        try:
+            agent_run_id = self.system.start_agent_run(
+                work_item_id,
+                agent_name,
+                task_description,
+            )
+            return agent_run_id
+        except Exception as e:
+            return f"Error starting agent run: {e}"
+
+    def finish_agent_run(
+        self,
+        agent_run_id: str,
+        status: str,
+        completion_payload: dict,
+        evidence: dict,
+    ) -> str:
+        """Record completion and evidence for an agent run."""
+        try:
+            self.system.finish_agent_run(
+                agent_run_id,
+                AgentRunStatus(status),
+                completion_payload,
+                evidence,
+            )
+            return f"Success: Finished agent run {agent_run_id}"
+        except ValueError:
+            return f"Error: Invalid agent run status '{status}'. Allowed: {[s.value for s in AgentRunStatus]}"
+        except Exception as e:
+            return f"Error finishing agent run: {e}"
 
     @jit_vmodel_guard
     def update_git_metadata(

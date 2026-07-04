@@ -6,7 +6,6 @@ gitpython
 mkdocs
 mkdocs-material
 mkdocstrings[python]
-docker
 keyring
 
 langchain
