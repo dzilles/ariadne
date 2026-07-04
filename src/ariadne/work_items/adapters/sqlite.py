@@ -8,6 +8,7 @@ from src.ariadne.work_items.models import (
     AgentRunStatus,
     ArtifactLink,
     Comment,
+    ContextEntry,
     GateStatus,
     ToolLogEntry,
     WorkItem,
@@ -119,6 +120,21 @@ class SQLiteWorkItemStore(WorkItemStore):
                     started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     finished_at TEXT DEFAULT '',
                     FOREIGN KEY (ticket_id) REFERENCES tickets (id)
+                )
+            ''')
+
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS context_entries (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ticket_id INTEGER NOT NULL,
+                    author TEXT NOT NULL,
+                    kind TEXT DEFAULT 'note',
+                    content TEXT NOT NULL,
+                    agent_run_id INTEGER,
+                    metadata TEXT DEFAULT '{}',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (ticket_id) REFERENCES tickets (id),
+                    FOREIGN KEY (agent_run_id) REFERENCES agent_runs (id)
                 )
             ''')
             
@@ -396,7 +412,86 @@ class SQLiteWorkItemStore(WorkItemStore):
                 "UPDATE tickets SET shared_context = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
                 (new_context, work_item_id)
             )
+            cursor.execute(
+                """
+                INSERT INTO context_entries (
+                    ticket_id, author, kind, content, metadata
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    work_item_id,
+                    author.strip() or "Ariadne",
+                    "handoff",
+                    context,
+                    json.dumps({}, sort_keys=True),
+                ),
+            )
             conn.commit()
+
+    def add_context_entry(
+        self,
+        work_item_id: str,
+        author: str,
+        content: str,
+        kind: str = "note",
+        agent_run_id: str | None = None,
+        metadata: dict | None = None,
+    ) -> str:
+        author = author.strip() or "Ariadne"
+        content = content.strip()
+        kind = kind.strip() or "note"
+        if not content:
+            raise ValueError("Context entry content cannot be empty.")
+
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT id FROM tickets WHERE id = ?", (work_item_id,))
+            if not cursor.fetchone():
+                raise ValueError(f"Work item {work_item_id} not found.")
+            cursor.execute(
+                """
+                INSERT INTO context_entries (
+                    ticket_id, author, kind, content, agent_run_id, metadata
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    work_item_id,
+                    author,
+                    kind,
+                    content,
+                    agent_run_id,
+                    json.dumps(metadata or {}, sort_keys=True),
+                ),
+            )
+            self._touch_work_item(cursor, work_item_id)
+            conn.commit()
+            return str(cursor.lastrowid)
+
+    def list_context_entries(self, work_item_id: str, limit: int | None = None) -> List[ContextEntry]:
+        query = "SELECT * FROM context_entries WHERE ticket_id = ? ORDER BY created_at ASC, id ASC"
+        values: list = [work_item_id]
+        if limit is not None:
+            query += " LIMIT ?"
+            values.append(max(1, int(limit)))
+
+        with self._get_connection() as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute(query, values)
+            rows = cursor.fetchall()
+            return [
+                ContextEntry(
+                    id=str(row["id"]),
+                    work_item_id=str(row["ticket_id"]),
+                    author=row["author"],
+                    kind=row["kind"] or "note",
+                    content=row["content"],
+                    agent_run_id=str(row["agent_run_id"] or ""),
+                    created_at=row["created_at"] or "",
+                    metadata=self._parse_json_object(row["metadata"], "metadata"),
+                )
+                for row in rows
+            ]
 
     def start_agent_run(
         self,

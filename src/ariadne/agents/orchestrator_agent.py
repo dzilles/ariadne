@@ -278,13 +278,20 @@ class OrchestratorAgent(BaseAgent):
             return f"Error delegating to {agent_name}: {str(e)}"
 
     def _build_delegation_prompt(self, agent_name: str, work_item_id: str, task_description: str) -> str:
+        context_bundle = self.ticket_tools.get_context_bundle(
+            work_item_id,
+            target_agent=agent_name,
+        )
         return f"""Context: You are working on work item #{work_item_id}.
+
+Context bundle:
+{context_bundle}
 
 Task:
 {task_description}
 
 Before you finish, you MUST:
-1. Check the current work item with `get_work_item` so your answer reflects the latest status, shared context, artifacts, and comments.
+1. Check the current work item with `get_work_item` so your answer reflects the latest status, artifacts, and comments.
 2. Complete the delegated task as far as your role allows.
 3. Finish by calling `finish_agent_run` with status, summary, and any relevant details, decisions, blockers, and intentional artifacts.
 

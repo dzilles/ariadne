@@ -8,6 +8,7 @@ READ_ONLY_TOOL_NAMES = (
     "get_work_item",
     "get_work_item_info",
     "get_ticket",
+    "get_context_bundle",
     "list_work_items",
     "read_file",
     "list_files",
@@ -52,6 +53,7 @@ DEFAULT_POLICY = {
                 "create_work_item",
                 "get_work_item",
                 "get_work_item_info",
+                "get_context_bundle",
                 "activate_work_item",
                 "update_status",
                 "post_comment",
@@ -74,6 +76,7 @@ DEFAULT_POLICY = {
             "prompt": "src/ariadne/prompts/requirements.md",
             "tools": [
                 "get_work_item",
+                "get_context_bundle",
                 "update_status",
                 "post_comment",
                 "approve_gate",
@@ -97,6 +100,7 @@ DEFAULT_POLICY = {
             "prompt": "src/ariadne/prompts/qm.md",
             "tools": [
                 "get_work_item",
+                "get_context_bundle",
                 "update_status",
                 "post_comment",
                 "approve_gate",
@@ -111,6 +115,7 @@ DEFAULT_POLICY = {
             "prompt": "src/ariadne/prompts/architect.md",
             "tools": [
                 "get_work_item",
+                "get_context_bundle",
                 "update_status",
                 "post_comment",
                 "add_link",
@@ -135,6 +140,7 @@ DEFAULT_POLICY = {
             "prompt": "src/ariadne/prompts/developer.md",
             "tools": [
                 "get_work_item",
+                "get_context_bundle",
                 "read_file",
                 "list_files",
                 "search_files",
@@ -157,6 +163,7 @@ DEFAULT_POLICY = {
             "prompt": "src/ariadne/prompts/tester.md",
             "tools": [
                 "get_work_item",
+                "get_context_bundle",
                 "read_file",
                 "list_files",
                 "search_files",
@@ -178,6 +185,7 @@ DEFAULT_POLICY = {
             "prompt": "src/ariadne/prompts/qa.md",
             "tools": [
                 "get_work_item",
+                "get_context_bundle",
                 "read_file",
                 "list_files",
                 "search_files",

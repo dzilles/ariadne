@@ -65,6 +65,17 @@ class AgentRun(BaseModel):
     evidence: dict[str, Any] = Field(default_factory=dict)
 
 
+class ContextEntry(BaseModel):
+    id: str
+    work_item_id: str
+    author: str
+    content: str
+    kind: str = "note"
+    agent_run_id: str = ""
+    created_at: str = ""
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class WorkItem(BaseModel):
     id: str
     title: str
@@ -165,6 +176,24 @@ class WorkItemStore(ABC):
     @abstractmethod
     def append_shared_context(self, work_item_id: str, author: str, context: str) -> None:
         """Append shared context for later agents working on this work item."""
+        pass
+
+    @abstractmethod
+    def add_context_entry(
+        self,
+        work_item_id: str,
+        author: str,
+        content: str,
+        kind: str = "note",
+        agent_run_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> str:
+        """Add a structured context entry for later agents."""
+        pass
+
+    @abstractmethod
+    def list_context_entries(self, work_item_id: str, limit: int | None = None) -> List[ContextEntry]:
+        """List structured context entries for a work item."""
         pass
 
     @abstractmethod

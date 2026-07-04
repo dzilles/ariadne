@@ -25,3 +25,43 @@ def test_sqlite_store_persists_agent_runs(tmp_path):
     assert runs[0].completion_payload["summary"] == "Done"
     assert runs[0].evidence["changed_files"] == ["src/app.py"]
     assert runs[0].finished_at
+
+
+def test_sqlite_store_persists_context_entries(tmp_path):
+    store = SQLiteWorkItemStore(str(tmp_path / "ariadne.db"))
+    work_item_id = store.create_work_item("Demo", "Description", WorkItemType.TASK, "Medium")
+
+    entry_id = store.add_context_entry(
+        work_item_id,
+        "Developer",
+        "Implemented the endpoint.",
+        kind="handoff",
+        metadata={"files": ["src/app.py"]},
+    )
+
+    entries = store.list_context_entries(work_item_id)
+
+    assert len(entries) == 1
+    assert entries[0].id == entry_id
+    assert entries[0].work_item_id == work_item_id
+    assert entries[0].author == "Developer"
+    assert entries[0].kind == "handoff"
+    assert entries[0].content == "Implemented the endpoint."
+    assert entries[0].metadata["files"] == ["src/app.py"]
+
+
+def test_append_shared_context_keeps_structured_context_in_sync(tmp_path):
+    store = SQLiteWorkItemStore(str(tmp_path / "ariadne.db"))
+    work_item_id = store.create_work_item("Demo", "Description", WorkItemType.TASK, "Medium")
+
+    store.append_shared_context(work_item_id, "Architect", "Use the existing parser.")
+
+    work_item = store.get_work_item(work_item_id)
+    entries = store.list_context_entries(work_item_id)
+
+    assert "[Architect]" in work_item.shared_context
+    assert "Use the existing parser." in work_item.shared_context
+    assert len(entries) == 1
+    assert entries[0].author == "Architect"
+    assert entries[0].kind == "handoff"
+    assert entries[0].content == "Use the existing parser."

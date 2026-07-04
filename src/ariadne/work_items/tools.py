@@ -248,6 +248,77 @@ class WorkItemTools:
         except Exception as e:
             return f"Error appending shared context: {e}"
 
+    def get_context_bundle(
+        self,
+        work_item_id: str,
+        target_agent: str = "",
+        max_entries: int = 10,
+    ) -> str:
+        """
+        Return compact context for a delegated agent.
+
+        This is intentionally read-only. It combines stable work item facts,
+        recent structured context entries, and recent agent-run summaries.
+        """
+        try:
+            max_entries = max(1, int(max_entries))
+        except (TypeError, ValueError):
+            return "Error: max_entries must be a positive integer."
+
+        try:
+            work_item = self.system.get_work_item(work_item_id)
+            try:
+                context_entries = self.system.list_context_entries(work_item_id)
+            except Exception:
+                context_entries = []
+            try:
+                agent_runs = self.system.list_agent_runs(work_item_id)
+            except Exception:
+                agent_runs = []
+
+            lines = [
+                f"Work item #{work_item.id}: {work_item.title}",
+                f"Status: {work_item.status}",
+                f"Type: {work_item.type.value}",
+                f"Target agent: {target_agent or 'Not specified'}",
+                "",
+                "Description:",
+                work_item.description or "No description recorded.",
+                "",
+                "Git metadata:",
+                f"- Target branch: {work_item.target_branch or 'Not set'}",
+                f"- Feature branch: {work_item.feature_branch or 'Not set'}",
+                f"- Base commit: {work_item.base_commit or 'Not set'}",
+                f"- Relevant commits: {', '.join(work_item.commit_hashes) if work_item.commit_hashes else 'None'}",
+                "",
+                "Recent context:",
+            ]
+
+            recent_entries = context_entries[-max_entries:]
+            if recent_entries:
+                for entry in recent_entries:
+                    lines.append(
+                        f"- [{entry.created_at}] {entry.author} ({entry.kind}): {entry.content}"
+                    )
+            elif work_item.shared_context:
+                lines.append(work_item.shared_context)
+            else:
+                lines.append("No structured context recorded.")
+
+            lines.append("")
+            lines.append("Recent agent runs:")
+            recent_runs = agent_runs[-max_entries:]
+            if recent_runs:
+                for run in recent_runs:
+                    summary = run.completion_payload.get("summary") or "No summary recorded."
+                    lines.append(f"- #{run.id} {run.agent_name} [{run.status.value}]: {summary}")
+            else:
+                lines.append("No agent runs recorded.")
+
+            return "\n".join(lines)
+        except Exception as e:
+            return f"Error building context bundle: {e}"
+
     def start_agent_run(self, work_item_id: str, agent_name: str, task_description: str) -> str:
         """Record that an agent run has started for this work item."""
         try:
@@ -310,6 +381,7 @@ class WorkItemTools:
 *   `get_work_item(work_item_id)`: Get full work item details (User Story, Status, Comments).
 *   `get_work_item_info(work_item_id)`: Orchestrator-facing alias for `get_work_item`.
 *   `get_ticket(ticket_id)`: Backward-compatible alias for `get_work_item`.
+*   `get_context_bundle(work_item_id, target_agent="", max_entries=10)`: Read compact work item context, recent handoffs, and recent agent-run summaries.
 *   `list_work_items()`: List all work items with ID, title, status, and type.
 *   `activate_work_item(work_item_id)`: Activate a work item for the current run without delegating to another agent.
 *   `update_status(work_item_id, status)`: Move work item workflow. Allowed values: {allowed_statuses}
