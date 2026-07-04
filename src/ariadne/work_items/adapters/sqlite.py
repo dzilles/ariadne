@@ -360,6 +360,36 @@ class SQLiteWorkItemStore(WorkItemStore):
             cursor = conn.cursor()
             cursor.execute(
                 """
+                SELECT id FROM artifacts
+                WHERE ticket_id = ? AND title = ? AND url = ?
+                """,
+                (work_item_id, title, url),
+            )
+            existing = cursor.fetchone()
+            if existing:
+                cursor.execute(
+                    """
+                    UPDATE artifacts
+                    SET artifact_type = ?,
+                        agent_run_id = ?,
+                        metadata = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        artifact_type,
+                        agent_run_id,
+                        json.dumps(metadata or {}, sort_keys=True),
+                        existing[0],
+                    ),
+                )
+                self._touch_work_item(cursor, work_item_id)
+                conn.commit()
+                if comment:
+                    self.post_comment(work_item_id, comment)
+                return
+
+            cursor.execute(
+                """
                 INSERT INTO artifacts (
                     ticket_id, title, url, artifact_type, agent_run_id, metadata
                 ) VALUES (?, ?, ?, ?, ?, ?)

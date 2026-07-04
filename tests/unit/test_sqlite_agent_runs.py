@@ -103,3 +103,33 @@ def test_sqlite_store_persists_typed_artifact_metadata(tmp_path):
     assert artifact.agent_run_id == run_id
     assert artifact.metadata == {"phase": "analysis", "stable_id": "REQ-1"}
     assert artifact.created_at
+
+
+def test_sqlite_store_updates_duplicate_artifact_links(tmp_path):
+    store = SQLiteWorkItemStore(str(tmp_path / "ariadne.db"))
+    work_item_id = store.create_work_item("Demo", "Description", WorkItemType.TASK, "Medium")
+    first_run_id = store.start_agent_run(work_item_id, "Requirements", "Write requirements")
+    second_run_id = store.start_agent_run(work_item_id, "Requirements", "Revise requirements")
+
+    store.add_artifact_link(
+        work_item_id,
+        "Requirement",
+        "docs/requirements/REQ-1.md",
+        artifact_type="requirement",
+        agent_run_id=first_run_id,
+        metadata={"version": 1},
+    )
+    store.add_artifact_link(
+        work_item_id,
+        "Requirement",
+        "docs/requirements/REQ-1.md",
+        artifact_type="requirement",
+        agent_run_id=second_run_id,
+        metadata={"version": 2},
+    )
+
+    work_item = store.get_work_item(work_item_id)
+
+    assert len(work_item.artifacts) == 1
+    assert work_item.artifacts[0].agent_run_id == second_run_id
+    assert work_item.artifacts[0].metadata == {"version": 2}
