@@ -232,6 +232,7 @@ class OrchestratorAgent(BaseAgent):
             )
             if str(agent_run_id).startswith("Error"):
                 return str(agent_run_id)
+            starting_commit = self._git_output(["rev-parse", "--short", "HEAD"])
 
             # 1. Ensure work item is in the correct status for the agent
             if agent_name in status_map:
@@ -247,6 +248,7 @@ class OrchestratorAgent(BaseAgent):
                 self._build_delegation_prompt(agent_name, work_item_id, task_description)
             )
             evidence = self._collect_handoff_evidence()
+            evidence["starting_commit"] = starting_commit
             completion = self._parse_agent_completion(response) or {}
             completion_status = completion.get("status", "FAILED")
             self.ticket_tools.finish_agent_run(
@@ -255,6 +257,7 @@ class OrchestratorAgent(BaseAgent):
                 completion,
                 evidence,
             )
+            self._apply_agent_run_to_work_item(work_item_id, completion, evidence)
             self._append_agent_handoff_context(
                 work_item_id,
                 agent_name,
@@ -276,6 +279,54 @@ class OrchestratorAgent(BaseAgent):
                     evidence,
                 )
             return f"Error delegating to {agent_name}: {str(e)}"
+
+    def _apply_agent_run_to_work_item(
+        self,
+        work_item_id: str,
+        completion: dict,
+        evidence: dict,
+    ) -> None:
+        if completion.get("status") != "SUCCESS":
+            return
+
+        starting_commit = evidence.get("starting_commit") or ""
+        latest_commit = evidence.get("latest_commit") or ""
+        if latest_commit and latest_commit != starting_commit:
+            result = self.ticket_tools.add_commit_hash(work_item_id, latest_commit)
+            logger.info("Commit hash update result for work item #%s: %s", work_item_id, result)
+
+        for artifact in completion.get("artifacts") or []:
+            normalized = self._normalize_artifact_link(artifact)
+            if not normalized:
+                continue
+            title, url = normalized
+            result = self.ticket_tools.add_link(work_item_id, title, url)
+            logger.info("Artifact link update result for work item #%s: %s", work_item_id, result)
+
+    def _normalize_artifact_link(self, artifact) -> tuple[str, str] | None:
+        if isinstance(artifact, str):
+            value = artifact.strip()
+            if not value:
+                return None
+            return ("Artifact", value)
+        if not isinstance(artifact, dict):
+            return None
+
+        url = str(
+            artifact.get("url")
+            or artifact.get("path")
+            or artifact.get("file")
+            or ""
+        ).strip()
+        if not url:
+            return None
+        title = str(
+            artifact.get("title")
+            or artifact.get("name")
+            or artifact.get("type")
+            or url
+        ).strip()
+        return (title or url, url)
 
     def _build_delegation_prompt(self, agent_name: str, work_item_id: str, task_description: str) -> str:
         context_bundle = self.ticket_tools.get_context_bundle(

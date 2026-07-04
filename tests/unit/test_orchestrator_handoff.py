@@ -3,6 +3,20 @@ import json
 from src.ariadne.agents.orchestrator_agent import OrchestratorAgent
 
 
+class FakeWorkItemTools:
+    def __init__(self):
+        self.commit_hashes = []
+        self.links = []
+
+    def add_commit_hash(self, work_item_id, commit_hash):
+        self.commit_hashes.append((work_item_id, commit_hash))
+        return "ok"
+
+    def add_link(self, work_item_id, title, url):
+        self.links.append((work_item_id, title, url))
+        return "ok"
+
+
 def test_check_clean_git_status_blocks_dirty_worktree(monkeypatch):
     agent = OrchestratorAgent.__new__(OrchestratorAgent)
     monkeypatch.setattr(
@@ -68,3 +82,48 @@ def test_parse_agent_completion_reads_marked_json():
     response = "[AGENT_RUN_COMPLETE]\n" + json.dumps(payload)
 
     assert agent._parse_agent_completion(response) == payload
+
+
+def test_apply_agent_run_to_work_item_records_new_commit_and_artifacts():
+    agent = OrchestratorAgent.__new__(OrchestratorAgent)
+    tools = FakeWorkItemTools()
+    agent.ticket_tools = tools
+    completion = {
+        "status": "SUCCESS",
+        "artifacts": [
+            {"title": "Spec", "url": "docs/spec.md"},
+            {"name": "Design", "path": "docs/design.md"},
+        ],
+    }
+    evidence = {
+        "starting_commit": "abc123",
+        "latest_commit": "def456",
+    }
+
+    agent._apply_agent_run_to_work_item("7", completion, evidence)
+
+    assert tools.commit_hashes == [("7", "def456")]
+    assert tools.links == [
+        ("7", "Spec", "docs/spec.md"),
+        ("7", "Design", "docs/design.md"),
+    ]
+
+
+def test_apply_agent_run_to_work_item_ignores_failed_or_unchanged_runs():
+    agent = OrchestratorAgent.__new__(OrchestratorAgent)
+    tools = FakeWorkItemTools()
+    agent.ticket_tools = tools
+
+    agent._apply_agent_run_to_work_item(
+        "7",
+        {"status": "FAILED", "artifacts": [{"title": "Spec", "url": "docs/spec.md"}]},
+        {"starting_commit": "abc123", "latest_commit": "def456"},
+    )
+    agent._apply_agent_run_to_work_item(
+        "7",
+        {"status": "SUCCESS", "artifacts": []},
+        {"starting_commit": "abc123", "latest_commit": "abc123"},
+    )
+
+    assert tools.commit_hashes == []
+    assert tools.links == []
