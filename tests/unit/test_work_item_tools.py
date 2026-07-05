@@ -158,6 +158,18 @@ def test_finish_agent_run_delegates_to_store():
     assert store.finished_runs[0][3] == evidence
 
 
+def test_get_work_item_displays_structured_context_before_legacy_context():
+    store = FakeWorkItemStore()
+    tools = WorkItemTools(store)
+
+    result = tools.get_work_item("7")
+
+    assert "--- Shared Context ---" in result
+    assert "Implemented service changes." in result
+    assert "Selected the service design." in result
+    assert "No shared context recorded." not in result
+
+
 def test_get_context_bundle_combines_work_item_context_and_agent_runs():
     store = FakeWorkItemStore()
     tools = WorkItemTools(store)

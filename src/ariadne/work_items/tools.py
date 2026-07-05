@@ -47,6 +47,10 @@ class WorkItemTools:
         """
         try:
             work_item = self.system.get_work_item(work_item_id)
+            try:
+                context_entries = self.system.list_context_entries(work_item_id)
+            except Exception:
+                context_entries = []
             
             # Format as readable string for LLM
             lines = [
@@ -65,9 +69,20 @@ class WorkItemTools:
                 "\n--- Description ---",
                 work_item.description,
                 "\n--- Shared Context ---",
-                work_item.shared_context or "No shared context recorded.",
-                "\n--- Tool Logs ---",
             ]
+
+            if context_entries:
+                for entry in context_entries[-10:]:
+                    source = f" agent run #{entry.agent_run_id}" if entry.agent_run_id else ""
+                    lines.append(
+                        f"- [{entry.created_at}] {entry.author} ({entry.kind}{source}): {entry.content}"
+                    )
+            elif work_item.shared_context:
+                lines.append(work_item.shared_context)
+            else:
+                lines.append("No shared context recorded.")
+
+            lines.append("\n--- Tool Logs ---")
 
             if work_item.tool_logs:
                 for entry in work_item.tool_logs:
