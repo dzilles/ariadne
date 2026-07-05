@@ -326,11 +326,19 @@ class WorkItemTools:
                 "Artifacts:",
             ]
 
-            if work_item.artifacts:
-                for artifact in work_item.artifacts:
+            selected_artifacts = self._select_context_artifacts(
+                work_item.artifacts,
+                target_agent,
+                max_entries,
+            )
+            if selected_artifacts:
+                for artifact in selected_artifacts:
                     type_label = f" [{artifact.type}]" if artifact.type and artifact.type != "link" else ""
                     source = f" from agent run #{artifact.agent_run_id}" if artifact.agent_run_id else ""
                     lines.append(f"- {artifact.title}{type_label}: {artifact.url}{source}")
+                omitted = len(work_item.artifacts) - len(selected_artifacts)
+                if omitted > 0:
+                    lines.append(f"... omitted {omitted} less relevant artifact(s)")
             else:
                 lines.append("No artifacts recorded.")
 
@@ -339,7 +347,11 @@ class WorkItemTools:
                 "Recent context:",
             ])
 
-            recent_entries = context_entries[-max_entries:]
+            recent_entries = self._select_context_entries(
+                context_entries,
+                target_agent,
+                max_entries,
+            )
             if recent_entries:
                 for entry in recent_entries:
                     lines.append(
@@ -363,6 +375,60 @@ class WorkItemTools:
             return "\n".join(lines)
         except Exception as e:
             return f"Error building context bundle: {e}"
+
+    def _select_context_artifacts(self, artifacts, target_agent: str, max_entries: int):
+        if not artifacts:
+            return []
+        priorities = self._artifact_priorities(target_agent)
+        if not priorities:
+            return artifacts[-max_entries:]
+
+        def score(item):
+            artifact_type = (item.type or "link").lower()
+            try:
+                priority = priorities.index(artifact_type)
+            except ValueError:
+                priority = len(priorities)
+            return (priority, -self._safe_int(item.id))
+
+        return sorted(artifacts, key=score)[:max_entries]
+
+    def _select_context_entries(self, entries, target_agent: str, max_entries: int):
+        if not entries:
+            return []
+        target = target_agent.strip().lower()
+        if not target:
+            return entries[-max_entries:]
+
+        preferred_authors = {
+            "architect": {"requirements", "qm"},
+            "developer": {"architect", "requirements", "tester", "qa"},
+            "tester": {"developer", "architect", "requirements"},
+            "qa": {"tester", "developer", "architect"},
+        }.get(target, set())
+        if not preferred_authors:
+            return entries[-max_entries:]
+
+        def score(entry):
+            author = entry.author.strip().lower()
+            preferred = 0 if author in preferred_authors else 1
+            return (preferred, -self._safe_int(entry.id))
+
+        return sorted(entries, key=score)[:max_entries]
+
+    def _artifact_priorities(self, target_agent: str) -> list[str]:
+        return {
+            "architect": ["requirement", "requirements", "spec", "link"],
+            "developer": ["design", "architecture", "requirement", "test", "link"],
+            "tester": ["implementation", "source", "design", "requirement", "link"],
+            "qa": ["test", "implementation", "source", "design", "requirement", "link"],
+        }.get(target_agent.strip().lower(), [])
+
+    def _safe_int(self, value) -> int:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return 0
 
     def start_agent_run(self, work_item_id: str, agent_name: str, task_description: str) -> str:
         """Record that an agent run has started for this work item."""

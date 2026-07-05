@@ -24,6 +24,14 @@ class FakeWorkItemStore:
                 kind="handoff",
                 content="Implemented service changes.",
                 created_at="2026-07-05 10:00:00",
+            ),
+            ContextEntry(
+                id="2",
+                work_item_id="7",
+                author="Architect",
+                kind="handoff",
+                content="Selected the service design.",
+                created_at="2026-07-05 10:01:00",
             )
         ]
         self.agent_runs = [
@@ -69,6 +77,19 @@ class FakeWorkItemStore:
                     url="docs/requirements/REQ-1.md",
                     type="requirement",
                     agent_run_id="98",
+                ),
+                ArtifactLink(
+                    id="6",
+                    title="Design",
+                    url="docs/design/ARCH-1.md",
+                    type="design",
+                    agent_run_id="99",
+                ),
+                ArtifactLink(
+                    id="7",
+                    title="Meeting Notes",
+                    url="docs/notes.md",
+                    type="note",
                 )
             ],
         )
@@ -148,3 +169,25 @@ def test_get_context_bundle_combines_work_item_context_and_agent_runs():
     assert "Requirement [requirement]: docs/requirements/REQ-1.md from agent run #98" in result
     assert "Implemented service changes." in result
     assert "#99 Developer [SUCCESS]: Implementation complete." in result
+
+
+def test_get_context_bundle_prioritizes_artifacts_for_target_agent():
+    store = FakeWorkItemStore()
+    tools = WorkItemTools(store)
+
+    result = tools.get_context_bundle("7", target_agent="Developer", max_entries=2)
+
+    assert "Design [design]: docs/design/ARCH-1.md from agent run #99" in result
+    assert "Requirement [requirement]: docs/requirements/REQ-1.md from agent run #98" in result
+    assert "Meeting Notes" not in result
+    assert "... omitted 1 less relevant artifact(s)" in result
+
+
+def test_get_context_bundle_prioritizes_context_for_target_agent():
+    store = FakeWorkItemStore()
+    tools = WorkItemTools(store)
+
+    result = tools.get_context_bundle("7", target_agent="Developer", max_entries=1)
+
+    assert "Selected the service design." in result
+    assert "Implemented service changes." not in result
