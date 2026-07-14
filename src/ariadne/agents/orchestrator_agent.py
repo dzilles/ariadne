@@ -2,14 +2,20 @@ import logging
 import json
 import os
 import subprocess
+import traceback
+
+from pydantic import ValidationError
+
 from src.ariadne.agents.base_agent import BaseAgent
-from src.ariadne.tools.file_tools import FileAgentTools
 from src.ariadne.policies.registry import build_agent_tools, build_tool_docs
 from src.ariadne.tools.tool_wrapper import wrap_tools_with_error_handling
 from src.ariadne.config.settings import settings
 from src.ariadne.infrastructure.container import DependencyRegistry
+from src.ariadne.work_items.models import AgentCompletion, AgentRunDiagnostics
 
 logger = logging.getLogger(__name__)
+
+MAX_RAW_AGENT_RESPONSE_CHARS = 20_000
 
 class OrchestratorAgent(BaseAgent):
     """
@@ -223,6 +229,11 @@ class OrchestratorAgent(BaseAgent):
         # Set the context for the JIT guard
         set_active_work_item_id(work_item_id)
         agent_run_id = None
+        starting_commit = ""
+        response = ""
+        completion = None
+        diagnostics = {}
+        execution_error = None
         
         try:
             agent_run_id = self.ticket_tools.start_agent_run(
@@ -247,44 +258,90 @@ class OrchestratorAgent(BaseAgent):
             response = agent_instance.chat(
                 self._build_delegation_prompt(agent_name, work_item_id, task_description)
             )
-            evidence = self._collect_handoff_evidence()
-            evidence["starting_commit"] = starting_commit
-            completion = self._parse_agent_completion(response) or {}
-            completion_status = completion.get("status", "FAILED")
-            self.ticket_tools.finish_agent_run(
-                agent_run_id,
-                completion_status,
-                completion,
-                evidence,
-            )
-            self._apply_agent_run_to_work_item(
-                work_item_id,
-                completion,
-                evidence,
-                agent_run_id=agent_run_id,
-            )
-            self._append_agent_handoff_context(
-                work_item_id,
-                agent_name,
-                response,
-                evidence,
-                completion,
-                agent_run_id=agent_run_id,
-            )
-            return f"[{agent_name} Response]:\n{response}"
+            completion, diagnostics = self._normalize_agent_completion(agent_name, response)
         except Exception as e:
-            if agent_run_id:
-                evidence = self._collect_handoff_evidence()
-                self.ticket_tools.finish_agent_run(
-                    agent_run_id,
-                    "FAILED",
-                    {
-                        "status": "FAILED",
-                        "summary": f"Error delegating to {agent_name}: {str(e)}",
-                    },
-                    evidence,
-                )
-            return f"Error delegating to {agent_name}: {str(e)}"
+            execution_error = e
+            completion = self._exception_completion(agent_name, e)
+            diagnostics = AgentRunDiagnostics(
+                failure_kind="exception",
+                error_type=type(e).__name__,
+                error_message=str(e),
+                traceback=traceback.format_exc(),
+            ).model_dump(mode="json")
+
+        if not agent_run_id:
+            return f"Error delegating to {agent_name}: agent run was not started."
+
+        evidence = self._collect_handoff_evidence()
+        evidence["starting_commit"] = starting_commit
+        try:
+            self._finalize_agent_outcome(
+                work_item_id=work_item_id,
+                agent_name=agent_name,
+                agent_run_id=agent_run_id,
+                response=response,
+                completion=completion,
+                evidence=evidence,
+                diagnostics=diagnostics,
+            )
+        except Exception as finalization_error:
+            logger.exception("Failed to finalize delegated agent run #%s", agent_run_id)
+            return (
+                f"Error finalizing delegation to {agent_name}: {finalization_error}. "
+                f"Agent run: {agent_run_id}"
+            )
+
+        if execution_error:
+            return f"Error delegating to {agent_name}: {execution_error}"
+        if diagnostics.get("failure_kind") == "invalid_completion":
+            return (
+                f"[{agent_name} Handoff Failure]:\n"
+                f"{completion['summary']}\n{completion.get('details', '')}"
+            )
+        return f"[{agent_name} Response]:\n{response}"
+
+    def _finalize_agent_outcome(
+        self,
+        work_item_id: str,
+        agent_name: str,
+        agent_run_id: str,
+        response: str,
+        completion: dict,
+        evidence: dict,
+        diagnostics: dict,
+    ) -> None:
+        raw_response, was_truncated = self._truncate_raw_response(response)
+        diagnostics = dict(diagnostics or {})
+        if was_truncated:
+            diagnostics["raw_response_truncated"] = True
+
+        completion_status = completion["status"]
+        finish_result = self.ticket_tools.finish_agent_run(
+            agent_run_id,
+            completion_status,
+            completion,
+            evidence,
+            exit_status="Blocked" if completion_status == "FAILED" else "",
+            raw_response=raw_response,
+            diagnostics=diagnostics,
+        )
+        if str(finish_result).startswith("Error"):
+            raise RuntimeError(str(finish_result))
+
+        self._apply_agent_run_to_work_item(
+            work_item_id,
+            completion,
+            evidence,
+            agent_run_id=agent_run_id,
+        )
+        self._append_agent_handoff_context(
+            work_item_id,
+            agent_name,
+            response,
+            evidence,
+            completion,
+            agent_run_id=agent_run_id,
+        )
 
     def _apply_agent_run_to_work_item(
         self,
@@ -367,11 +424,14 @@ class OrchestratorAgent(BaseAgent):
             or url
         ).strip()
         artifact_type = str(artifact.get("type") or "link").strip() or "link"
-        metadata = {
+        metadata = dict(artifact.get("metadata") or {}) if isinstance(artifact.get("metadata"), dict) else {}
+        if artifact.get("stable_id"):
+            metadata["stable_id"] = artifact["stable_id"]
+        metadata.update({
             key: value
             for key, value in artifact.items()
-            if key not in {"title", "name", "url", "path", "file", "type"}
-        }
+            if key not in {"title", "name", "url", "path", "file", "type", "stable_id", "metadata"}
+        })
         return (title or url, url, artifact_type, metadata)
 
     def _build_delegation_prompt(self, agent_name: str, work_item_id: str, task_description: str) -> str:
@@ -472,15 +532,60 @@ Do not choose the next agent. The Orchestrator decides workflow routing.
         return metadata
 
     def _parse_agent_completion(self, response: str) -> dict | None:
+        completion, _error = self._decode_agent_completion(response)
+        return completion
+
+    def _decode_agent_completion(self, response: str) -> tuple[dict | None, str]:
         marker = "[AGENT_RUN_COMPLETE]"
         if marker not in response:
-            return None
+            return None, f"Agent response did not contain the required {marker} marker."
         payload = response.split(marker, 1)[1].strip()
         try:
             parsed = json.loads(payload)
-        except json.JSONDecodeError:
-            return None
-        return parsed if isinstance(parsed, dict) else None
+        except json.JSONDecodeError as e:
+            return None, f"Completion payload was not valid JSON: {e.msg}."
+        if not isinstance(parsed, dict):
+            return None, "Completion payload must be a JSON object."
+        try:
+            completion = AgentCompletion.model_validate(parsed)
+        except ValidationError as e:
+            return None, f"Completion payload failed validation: {e.errors(include_url=False)}"
+        return completion.model_dump(mode="json", exclude_none=True), ""
+
+    def _normalize_agent_completion(self, agent_name: str, response: str) -> tuple[dict, dict]:
+        completion, error = self._decode_agent_completion(response)
+        if completion:
+            return completion, {}
+
+        failed_completion = AgentCompletion(
+            status="FAILED",
+            summary=f"{agent_name} returned an invalid completion handoff.",
+            details=error,
+            blockers=["A valid completion handoff is required before the workflow can continue."],
+        )
+        diagnostics = AgentRunDiagnostics(
+            failure_kind="invalid_completion",
+            error_type="CompletionValidationError",
+            error_message=error,
+        )
+        return (
+            failed_completion.model_dump(mode="json", exclude_none=True),
+            diagnostics.model_dump(mode="json"),
+        )
+
+    def _exception_completion(self, agent_name: str, error: Exception) -> dict:
+        return AgentCompletion(
+            status="FAILED",
+            summary=f"Error delegating to {agent_name}: {error}",
+            details="The delegated agent did not complete because its execution raised an exception.",
+            blockers=["Review the agent-run diagnostics before retrying this phase."],
+        ).model_dump(mode="json", exclude_none=True)
+
+    def _truncate_raw_response(self, response: str) -> tuple[str, bool]:
+        value = str(response or "")
+        if len(value) <= MAX_RAW_AGENT_RESPONSE_CHARS:
+            return value, False
+        return value[:MAX_RAW_AGENT_RESPONSE_CHARS], True
 
     def _format_handoff_context(
         self,

@@ -58,6 +58,7 @@ class WorkItemTools:
                 f"Title: {work_item.title}",
                 f"Status: {work_item.status}",
                 f"Type: {work_item.type.value}",
+                f"Priority: {work_item.priority}",
                 f"Created At: {work_item.created_at}",
                 f"Updated At: {work_item.updated_at}",
                 f"Relevant Commits: {', '.join(work_item.commit_hashes) if work_item.commit_hashes else 'None'}",
@@ -141,7 +142,8 @@ class WorkItemTools:
             lines = ["Work Items:"]
             for item in work_items:
                 lines.append(
-                    f"- #{item.id}: {item.title} | Status: {item.status} | Type: {item.type.value}"
+                    f"- #{item.id}: {item.title} | Status: {item.status} | "
+                    f"Type: {item.type.value} | Priority: {item.priority}"
                 )
             return "\n".join(lines)
         except Exception as e:
@@ -327,6 +329,7 @@ class WorkItemTools:
                 f"Work item #{work_item.id}: {work_item.title}",
                 f"Status: {work_item.status}",
                 f"Type: {work_item.type.value}",
+                f"Priority: {work_item.priority}",
                 f"Target agent: {target_agent or 'Not specified'}",
                 "",
                 "Description:",
@@ -463,14 +466,25 @@ class WorkItemTools:
         status: str,
         completion_payload: dict,
         evidence: dict,
+        exit_status: str = "",
+        raw_response: str = "",
+        diagnostics: dict | None = None,
     ) -> str:
         """Record completion and evidence for an agent run."""
         try:
+            outcome_details = {}
+            if exit_status:
+                outcome_details["exit_status"] = exit_status
+            if raw_response:
+                outcome_details["raw_response"] = raw_response
+            if diagnostics:
+                outcome_details["diagnostics"] = diagnostics
             self.system.finish_agent_run(
                 agent_run_id,
                 AgentRunStatus(status),
                 completion_payload,
                 evidence,
+                **outcome_details,
             )
             return f"Success: Finished agent run {agent_run_id}"
         except ValueError:

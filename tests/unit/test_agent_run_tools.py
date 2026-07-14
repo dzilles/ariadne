@@ -22,11 +22,14 @@ def test_finish_agent_run_returns_success_payload():
                 "title": "REQ-1",
                 "url": "docs/requirements/REQ-1.md",
                 "type": "requirement",
+                "stable_id": "REQ-1",
+                "metadata": {"phase": "analysis"},
             }
         ],
     )
     payload = _payload(result)
 
+    assert payload["schema_version"] == 1
     assert payload["status"] == "SUCCESS"
     assert payload["summary"] == "Created requirements document."
     assert payload["details"] == "Covered persistence and context deletion."
@@ -37,6 +40,8 @@ def test_finish_agent_run_returns_success_payload():
             "title": "REQ-1",
             "url": "docs/requirements/REQ-1.md",
             "type": "requirement",
+            "stable_id": "REQ-1",
+            "metadata": {"phase": "analysis"},
         }
     ]
 

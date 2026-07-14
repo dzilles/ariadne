@@ -112,7 +112,12 @@ def test_parse_agent_completion_reads_marked_json():
     payload = {"status": "SUCCESS", "summary": "Done"}
     response = "[AGENT_RUN_COMPLETE]\n" + json.dumps(payload)
 
-    assert agent._parse_agent_completion(response) == payload
+    parsed = agent._parse_agent_completion(response)
+
+    assert parsed["schema_version"] == 1
+    assert parsed["status"] == "SUCCESS"
+    assert parsed["summary"] == "Done"
+    assert parsed["artifacts"] == []
 
 
 def test_apply_agent_run_to_work_item_records_new_commit_and_artifacts():

@@ -124,11 +124,19 @@ class SQLiteWorkItemStore(WorkItemStore):
                     task_description TEXT DEFAULT '',
                     completion_payload TEXT DEFAULT '{}',
                     evidence TEXT DEFAULT '{}',
+                    entry_status TEXT DEFAULT '',
+                    exit_status TEXT DEFAULT '',
+                    raw_response TEXT DEFAULT '',
+                    diagnostics TEXT DEFAULT '{}',
                     started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     finished_at TEXT DEFAULT '',
                     FOREIGN KEY (ticket_id) REFERENCES tickets (id)
                 )
             ''')
+            self._ensure_agent_run_column(cursor, "entry_status", "TEXT DEFAULT ''")
+            self._ensure_agent_run_column(cursor, "exit_status", "TEXT DEFAULT ''")
+            self._ensure_agent_run_column(cursor, "raw_response", "TEXT DEFAULT ''")
+            self._ensure_agent_run_column(cursor, "diagnostics", "TEXT DEFAULT '{}'")
 
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS context_entries (
@@ -158,6 +166,12 @@ class SQLiteWorkItemStore(WorkItemStore):
         columns = {row[1] for row in cursor.fetchall()}
         if column_name not in columns:
             cursor.execute(f"ALTER TABLE artifacts ADD COLUMN {column_name} {definition}")
+
+    def _ensure_agent_run_column(self, cursor: sqlite3.Cursor, column_name: str, definition: str) -> None:
+        cursor.execute("PRAGMA table_info(agent_runs)")
+        columns = {row[1] for row in cursor.fetchall()}
+        if column_name not in columns:
+            cursor.execute(f"ALTER TABLE agent_runs ADD COLUMN {column_name} {definition}")
 
     def _touch_work_item(self, cursor: sqlite3.Cursor, work_item_id: str) -> None:
         cursor.execute("UPDATE tickets SET updated_at = CURRENT_TIMESTAMP WHERE id = ?", (work_item_id,))
@@ -260,6 +274,7 @@ class SQLiteWorkItemStore(WorkItemStore):
                 description=row['description'] or "",
                 status=row['status'],
                 type=WorkItemType(row['type']),
+                priority=row['priority'] or "Medium",
                 assignees=assignees,
                 comments=comments,
                 artifacts=artifacts,
@@ -589,21 +604,23 @@ class SQLiteWorkItemStore(WorkItemStore):
     ) -> str:
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT id FROM tickets WHERE id = ?", (work_item_id,))
-            if not cursor.fetchone():
+            cursor.execute("SELECT id, status FROM tickets WHERE id = ?", (work_item_id,))
+            work_item = cursor.fetchone()
+            if not work_item:
                 raise ValueError(f"Work item {work_item_id} not found.")
 
             cursor.execute(
                 """
                 INSERT INTO agent_runs (
-                    ticket_id, agent_name, status, task_description
-                ) VALUES (?, ?, ?, ?)
+                    ticket_id, agent_name, status, task_description, entry_status
+                ) VALUES (?, ?, ?, ?, ?)
                 """,
                 (
                     work_item_id,
                     agent_name,
                     AgentRunStatus.RUNNING.value,
                     task_description,
+                    work_item[1] or "",
                 ),
             )
             self._touch_work_item(cursor, work_item_id)
@@ -616,15 +633,34 @@ class SQLiteWorkItemStore(WorkItemStore):
         status: AgentRunStatus,
         completion_payload: dict,
         evidence: dict,
+        exit_status: str = "",
+        raw_response: str = "",
+        diagnostics: dict | None = None,
     ) -> None:
         with self._get_connection() as conn:
             cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT agent_runs.ticket_id, tickets.status
+                FROM agent_runs
+                JOIN tickets ON tickets.id = agent_runs.ticket_id
+                WHERE agent_runs.id = ?
+                """,
+                (agent_run_id,),
+            )
+            run = cursor.fetchone()
+            if not run:
+                raise ValueError(f"Agent run {agent_run_id} not found.")
+            resolved_exit_status = exit_status or run[1] or ""
             cursor.execute(
                 """
                 UPDATE agent_runs
                 SET status = ?,
                     completion_payload = ?,
                     evidence = ?,
+                    exit_status = ?,
+                    raw_response = ?,
+                    diagnostics = ?,
                     finished_at = CURRENT_TIMESTAMP
                 WHERE id = ?
                 """,
@@ -632,15 +668,13 @@ class SQLiteWorkItemStore(WorkItemStore):
                     status.value,
                     json.dumps(completion_payload, sort_keys=True),
                     json.dumps(evidence, sort_keys=True),
+                    resolved_exit_status,
+                    raw_response,
+                    json.dumps(diagnostics or {}, sort_keys=True),
                     agent_run_id,
                 ),
             )
-            if cursor.rowcount == 0:
-                raise ValueError(f"Agent run {agent_run_id} not found.")
-            cursor.execute("SELECT ticket_id FROM agent_runs WHERE id = ?", (agent_run_id,))
-            row = cursor.fetchone()
-            if row:
-                self._touch_work_item(cursor, str(row[0]))
+            self._touch_work_item(cursor, str(run[0]))
             conn.commit()
 
     def list_agent_runs(self, work_item_id: str) -> List[AgentRun]:
@@ -666,6 +700,10 @@ class SQLiteWorkItemStore(WorkItemStore):
                         "completion_payload",
                     ),
                     evidence=self._parse_json_object(row["evidence"], "evidence"),
+                    entry_status=row["entry_status"] or "",
+                    exit_status=row["exit_status"] or "",
+                    raw_response=row["raw_response"] or "",
+                    diagnostics=self._parse_json_object(row["diagnostics"], "diagnostics"),
                 )
                 for row in rows
             ]

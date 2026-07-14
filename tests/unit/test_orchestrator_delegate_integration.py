@@ -14,6 +14,11 @@ class FakeDelegatedAgent:
         return self.response
 
 
+class FailingDelegatedAgent:
+    def chat(self, prompt):
+        raise RuntimeError("provider unavailable")
+
+
 class FakeTicketTools:
     def __init__(self):
         self.started_runs = []
@@ -31,8 +36,29 @@ class FakeTicketTools:
         self.started_runs.append((work_item_id, agent_name, task_description))
         return "99"
 
-    def finish_agent_run(self, agent_run_id, status, completion_payload, evidence):
-        self.finished_runs.append((agent_run_id, status, completion_payload, evidence))
+    def finish_agent_run(
+        self,
+        agent_run_id,
+        status,
+        completion_payload,
+        evidence,
+        exit_status="",
+        raw_response="",
+        diagnostics=None,
+    ):
+        self.finished_runs.append(
+            (
+                agent_run_id,
+                status,
+                completion_payload,
+                evidence,
+                {
+                    "exit_status": exit_status,
+                    "raw_response": raw_response,
+                    "diagnostics": diagnostics or {},
+                },
+            )
+        )
         return "ok"
 
     def update_status(self, work_item_id, status):
@@ -129,8 +155,10 @@ def test_delegate_to_agent_records_success_handoff(monkeypatch):
     assert ticket_tools.status_updates == [("17", WorkItemStatus.READY_FOR_ANALYSIS.value)]
     assert ticket_tools.finished_runs[0][0] == "99"
     assert ticket_tools.finished_runs[0][1] == "SUCCESS"
-    assert ticket_tools.finished_runs[0][2] == completion
+    assert ticket_tools.finished_runs[0][2]["summary"] == completion["summary"]
+    assert ticket_tools.finished_runs[0][2]["schema_version"] == 1
     assert ticket_tools.finished_runs[0][3]["starting_commit"] == "abc123"
+    assert ticket_tools.finished_runs[0][4]["raw_response"].startswith("[AGENT_RUN_COMPLETE]")
     assert ticket_tools.commit_hashes == [("17", "def456")]
     assert ticket_tools.links == [
         (
@@ -185,3 +213,76 @@ def test_delegate_to_agent_records_failed_handoff(monkeypatch):
     assert any("Need user clarification." in comment for _, comment in ticket_tools.comments)
     assert ticket_tools.links == []
     assert ticket_tools.commit_hashes == []
+
+
+def test_delegate_to_agent_normalizes_malformed_handoff_as_failure(monkeypatch):
+    ticket_tools = FakeTicketTools()
+    orchestrator = _agent_with_ticket_tools(ticket_tools)
+    response = "Success: Finished agent run 99"
+    fake_agent = FakeDelegatedAgent(response)
+
+    monkeypatch.setattr(orchestrator, "_check_clean_git_status", lambda: "")
+    monkeypatch.setattr(orchestrator, "_git_output", lambda args: "abc123")
+    monkeypatch.setattr(
+        orchestrator,
+        "_collect_handoff_evidence",
+        lambda: {
+            "branch": "main",
+            "status_short": "",
+            "diff_stat": "",
+            "changed_files": [],
+            "latest_commit": "abc123",
+        },
+    )
+    monkeypatch.setattr(
+        "src.ariadne.application.agents.AGENT_CLASSES",
+        {"Requirements": lambda: fake_agent},
+    )
+
+    result = orchestrator.delegate_to_agent("Requirements", "17", "Create requirement.")
+
+    assert result.startswith("[Requirements Handoff Failure]:")
+    assert "required [AGENT_RUN_COMPLETE] marker" in result
+    finished = ticket_tools.finished_runs[0]
+    assert finished[1] == "FAILED"
+    assert finished[2]["summary"] == "Requirements returned an invalid completion handoff."
+    assert "required [AGENT_RUN_COMPLETE] marker" in finished[2]["details"]
+    assert finished[4]["raw_response"] == response
+    assert finished[4]["diagnostics"]["failure_kind"] == "invalid_completion"
+    assert ("17", "Blocked") in ticket_tools.status_updates
+    assert ticket_tools.shared_context[0][4]["status"] == "FAILED"
+
+
+def test_delegate_to_agent_records_exception_diagnostics_and_handoff(monkeypatch):
+    ticket_tools = FakeTicketTools()
+    orchestrator = _agent_with_ticket_tools(ticket_tools)
+
+    monkeypatch.setattr(orchestrator, "_check_clean_git_status", lambda: "")
+    monkeypatch.setattr(orchestrator, "_git_output", lambda args: "abc123")
+    monkeypatch.setattr(
+        orchestrator,
+        "_collect_handoff_evidence",
+        lambda: {
+            "branch": "main",
+            "status_short": "",
+            "diff_stat": "",
+            "changed_files": [],
+            "latest_commit": "abc123",
+        },
+    )
+    monkeypatch.setattr(
+        "src.ariadne.application.agents.AGENT_CLASSES",
+        {"Requirements": FailingDelegatedAgent},
+    )
+
+    result = orchestrator.delegate_to_agent("Requirements", "17", "Create requirement.")
+
+    assert result == "Error delegating to Requirements: provider unavailable"
+    finished = ticket_tools.finished_runs[0]
+    assert finished[1] == "FAILED"
+    assert finished[2]["status"] == "FAILED"
+    assert finished[4]["diagnostics"]["failure_kind"] == "exception"
+    assert finished[4]["diagnostics"]["error_type"] == "RuntimeError"
+    assert "provider unavailable" in finished[4]["diagnostics"]["traceback"]
+    assert ("17", "Blocked") in ticket_tools.status_updates
+    assert ticket_tools.shared_context[0][4]["status"] == "FAILED"

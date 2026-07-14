@@ -1,8 +1,8 @@
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Any, List
+from typing import Any, List, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class WorkItemType(str, Enum):
@@ -58,6 +58,92 @@ class AgentRunStatus(str, Enum):
     CANCELLED = "CANCELLED"
 
 
+class AgentCompletionStatus(str, Enum):
+    SUCCESS = "SUCCESS"
+    FAILED = "FAILED"
+
+
+class VerificationStatus(str, Enum):
+    PASSED = "PASSED"
+    FAILED = "FAILED"
+    SKIPPED = "SKIPPED"
+
+
+class CompletionArtifact(BaseModel):
+    title: str = Field(min_length=1)
+    url: str = Field(min_length=1)
+    type: str = "link"
+    stable_id: str = ""
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("title", "url", "type", "stable_id", mode="before")
+    @classmethod
+    def strip_text_fields(cls, value: Any) -> str:
+        return str(value or "").strip()
+
+
+class VerificationResult(BaseModel):
+    name: str = Field(min_length=1)
+    status: VerificationStatus
+    details: str = ""
+    command: str = ""
+
+    @field_validator("name", "details", "command", mode="before")
+    @classmethod
+    def strip_text_fields(cls, value: Any) -> str:
+        return str(value or "").strip()
+
+
+class GateDecision(BaseModel):
+    gate: str = Field(min_length=1)
+    decision: GateStatus
+    rationale: str = ""
+
+    @field_validator("gate", "rationale", mode="before")
+    @classmethod
+    def strip_text_fields(cls, value: Any) -> str:
+        return str(value or "").strip()
+
+
+class AgentCompletion(BaseModel):
+    schema_version: Literal[1] = 1
+    status: AgentCompletionStatus
+    summary: str
+    details: str = ""
+    decisions: list[str] = Field(default_factory=list)
+    blockers: list[str] = Field(default_factory=list)
+    artifacts: list[CompletionArtifact] = Field(default_factory=list)
+    verification: list[VerificationResult] = Field(default_factory=list)
+    gate_decision: GateDecision | None = None
+
+    @field_validator("summary", "details", mode="before")
+    @classmethod
+    def strip_text_fields(cls, value: Any) -> str:
+        return str(value or "").strip()
+
+    @field_validator("summary")
+    @classmethod
+    def require_summary(cls, value: str) -> str:
+        if not value:
+            raise ValueError("summary cannot be empty")
+        return value
+
+    @field_validator("decisions", "blockers", mode="before")
+    @classmethod
+    def normalize_text_lists(cls, values: Any) -> list[str]:
+        if not values:
+            return []
+        return [str(value).strip() for value in values if str(value).strip()]
+
+
+class AgentRunDiagnostics(BaseModel):
+    failure_kind: str = ""
+    error_type: str = ""
+    error_message: str = ""
+    traceback: str = ""
+    raw_response_truncated: bool = False
+
+
 class AgentRun(BaseModel):
     id: str
     work_item_id: str
@@ -68,6 +154,10 @@ class AgentRun(BaseModel):
     task_description: str = ""
     completion_payload: dict[str, Any] = Field(default_factory=dict)
     evidence: dict[str, Any] = Field(default_factory=dict)
+    entry_status: str = ""
+    exit_status: str = ""
+    raw_response: str = ""
+    diagnostics: dict[str, Any] = Field(default_factory=dict)
 
 
 class ContextEntry(BaseModel):
@@ -87,6 +177,7 @@ class WorkItem(BaseModel):
     description: str
     status: str  # Mapped to WorkItemStatus string values
     type: WorkItemType
+    priority: str = "Medium"
     assignees: List[str]
     comments: List[Comment]
     created_at: str = ""
@@ -234,6 +325,9 @@ class WorkItemStore(ABC):
         status: AgentRunStatus,
         completion_payload: dict[str, Any],
         evidence: dict[str, Any],
+        exit_status: str = "",
+        raw_response: str = "",
+        diagnostics: dict[str, Any] | None = None,
     ) -> None:
         """Mark an agent run complete and store completion/evidence payloads."""
         pass

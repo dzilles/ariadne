@@ -6,11 +6,9 @@ from unittest.mock import MagicMock, patch
 # Add project root to path
 sys.path.append(os.getcwd())
 
-from src.ariadne.workflows.context import set_active_ticket_id, get_active_ticket_id
+from src.ariadne.workflows.context import set_active_ticket_id
 from src.ariadne.work_items.models import Ticket, TicketStatus, TicketType
 from src.ariadne.tools.file_tools import FileAgentTools
-from src.ariadne.work_items.tools import StandardTicketTools
-from src.ariadne.workflows.enforcement import get_ticket_system
 
 class MockTicketSystem:
     def __init__(self):
@@ -46,20 +44,29 @@ class TestPhase1Guard(unittest.TestCase):
     def setUp(self):
         # Reset context before each test
         set_active_ticket_id(None)
+        ticket_system = MockTicketSystem()
+        work_item_patch = patch(
+            'src.ariadne.policies.evaluator._get_work_item',
+            side_effect=ticket_system.get_ticket,
+        )
+        blocker_patch = patch(
+            'src.ariadne.policies.evaluator._get_blockers',
+            return_value=[],
+        )
+        work_item_patch.start()
+        blocker_patch.start()
+        self.addCleanup(work_item_patch.stop)
+        self.addCleanup(blocker_patch.stop)
 
-    @patch('src.ariadne.workflows.enforcement.get_ticket_system')
-    def test_guard_no_context(self, mock_get_ts):
+    def test_guard_no_context(self):
         """Test that missing ticket context completely blocks mutating tools."""
         file_tools = FileAgentTools()
         result = file_tools.write_file("dummy.txt", "test")
         
         self.assertIn("⛔ BLOCK: You cannot execute mutating tools without an active work item context", result)
 
-    @patch('src.ariadne.workflows.enforcement.get_ticket_system')
-    def test_guard_wrong_status(self, mock_get_ts):
+    def test_guard_wrong_status(self):
         """Test that wrong status (Backlog) blocks write_file which is not in allowed actions."""
-        mock_get_ts.return_value = MockTicketSystem()
-        
         set_active_ticket_id("1")  # Ticket 1 is in BACKLOG
         file_tools = FileAgentTools()
         result = file_tools.write_file("dummy.txt", "test")
@@ -68,11 +75,8 @@ class TestPhase1Guard(unittest.TestCase):
         self.assertIn("You cannot perform 'write_file'", result)
         self.assertIn("Backlog", result)
 
-    @patch('src.ariadne.workflows.enforcement.get_ticket_system')
-    def test_guard_success(self, mock_get_ts):
+    def test_guard_success(self):
         """Test that correct status allows the action to pass through."""
-        mock_get_ts.return_value = MockTicketSystem()
-        
         set_active_ticket_id("2")  # Ticket 2 is in READY_FOR_ANALYSIS
         file_tools = FileAgentTools()
         
