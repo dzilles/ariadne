@@ -46,13 +46,14 @@ class BaseAgent:
     def _completion_protocol(self) -> str:
         """Instructions for agents that return control to the Orchestrator."""
         return """### Completion Protocol
-When your delegated task is complete or blocked, call `finish_agent_run(...)` as your final tool call.
+When your delegated task is complete or blocked, call `return_to_orchestrator(...)` exactly once as your final tool call.
 Use `SUCCESS` when your delegated task is complete.
 Use `FAILED` when you cannot complete it, are blocked, or need Orchestrator/user intervention.
 You provide only semantic handoff information: `status`, `summary`, optional `details`, `decisions`, `blockers`, and intentional `artifacts`.
 Do not choose the next agent or next workflow action. The Orchestrator decides that.
 Do not manually report git status, changed files, commits, or diff stats. Those are collected automatically.
-After `finish_agent_run` returns, respond to the user with exactly that returned text."""
+Do not call `finish_agent_run`; it exists only as a temporary compatibility alias.
+After `return_to_orchestrator` returns, do not call another tool."""
 
     def get_history(self) -> List[dict]:
         """Returns the current chat history as a serializable list of dicts."""
@@ -110,6 +111,8 @@ After `finish_agent_run` returns, respond to the user with exactly that returned
             result = self.agent_executor.invoke(inputs)
         except Exception as e:
             logger.error(f"Agent execution failed: {e}")
+            if getattr(self, "_propagate_delegation_errors", False):
+                raise
             error_msg = f"[System Error: {str(e)}]"
             # Add error to history so LLM has context on next turn
             self.chat_history.append(AIMessage(content=error_msg))

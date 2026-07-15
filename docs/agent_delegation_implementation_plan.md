@@ -1,7 +1,7 @@
 # Agent Delegation Implementation Plan
 
-Status: In progress
-Last updated: 2026-07-14
+Status: In progress; Phase 2 complete
+Last updated: 2026-07-15
 
 ## 1. Objective
 
@@ -47,6 +47,10 @@ The repository already provides:
 - Failed-run blocking for explicit, valid `FAILED` completions.
 - Target-agent context bundle prioritization.
 - Unit coverage for normal successful and failed handoffs.
+- An application-level delegation service with typed specialist returns.
+- Durable cancellation, malformed-completion, duplicate-return, and exception
+  finalization paths.
+- Coordinator routing for specialists selected directly in the UI.
 
 Known gaps:
 
@@ -56,11 +60,6 @@ Known gaps:
 - `shared_context` duplicates structured context entries.
 - Normal ticket rendering includes unbounded tool logs and comments.
 - Agent-run summaries and handoff context duplicate some information.
-- Malformed agent completions can produce a failed run with an empty payload
-  without blocking the work item.
-- Exceptions during delegation do not use the normal failure finalization path.
-- Directly selected specialist agents return to the user instead of the
-  Orchestrator.
 - Tool guards validate work item state but not whether the calling agent owns
   that state.
 - Specialist prompts and actual tool policies disagree in several places.
@@ -212,17 +211,17 @@ Acceptance criteria:
 
 ### Phase 2: Central Delegation Service
 
-- [ ] Introduce an application-level `DelegationService`.
-- [ ] Move run creation, evidence collection, completion parsing, normalization,
+- [x] Introduce an application-level `DelegationService`.
+- [x] Move run creation, evidence collection, completion parsing, normalization,
       and finalization out of `OrchestratorAgent`.
-- [ ] Add a terminal `return_to_orchestrator` tool, retaining
+- [x] Add a terminal `return_to_orchestrator` tool, retaining
       `finish_agent_run` temporarily as a compatibility alias.
-- [ ] Require exactly one terminal completion per specialist run.
+- [x] Require exactly one terminal completion per specialist run.
 - [x] Route malformed completions and exceptions through the same failed-run
       finalizer.
-- [ ] Return a typed completion to the Orchestrator instead of relying on marker
+- [x] Return a typed completion to the Orchestrator instead of relying on marker
       parsing throughout the application.
-- [ ] Ensure directly selected specialists also run through the coordinator and
+- [x] Ensure directly selected specialists also run through the coordinator and
       return to the Orchestrator.
 
 Acceptance criteria:
@@ -280,7 +279,7 @@ Implement missing tools:
 - [ ] Patch-based file editing for writing agents.
 - [ ] Read-only Git diff and commit-range inspection.
 - [ ] Test and validation execution for Tester and QA.
-- [ ] Typed `return_to_orchestrator` for all specialists.
+- [x] Typed `return_to_orchestrator` for all specialists.
 
 Remove or restrict inappropriate tools:
 
@@ -309,12 +308,12 @@ resolved callables, and prompt tool documentation.
 
 ### Phase 5: Prompt Rewrite
 
-- [ ] Create one shared specialist completion and tool-discipline fragment.
+- [x] Create one shared specialist completion and tool-discipline fragment.
 - [ ] Ensure dynamic mission instructions are injected by the normal application
       path, not only by legacy scripts.
 - [ ] Make the Orchestrator use workflow policy instead of a hardcoded status map.
 - [ ] Tell specialists not to choose the next agent or status.
-- [ ] Tell specialists to return semantic data through
+- [x] Tell specialists to return semantic data through
       `return_to_orchestrator`.
 - [ ] Remove references to nonexistent tools such as `search_file_content`.
 - [ ] Remove mandatory hidden-reasoning or `<thought>` instructions.

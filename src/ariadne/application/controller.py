@@ -296,17 +296,57 @@ class AriadneApplicationController:
         """Run one user message immediately."""
         if self._current_agent:
             from .agent_runner import run_agent
+            from .delegation import CoordinatedSpecialistAgent, SPECIALIST_AGENT_NAMES
+
+            execution_agent = self._current_agent
+            history_agent = self._current_agent
+            history_agent_name = self._current_agent_name
+            return_to_orchestrator = False
+
+            if self._current_agent_name in SPECIALIST_AGENT_NAMES:
+                if not self._active_work_item_id:
+                    emit(
+                        RunEvent(
+                            "error",
+                            message=(
+                                "Select or activate a work item before running a "
+                                "specialist agent."
+                            ),
+                        )
+                    )
+                    return
+                try:
+                    orchestrator = self._get_or_create_agent("Orchestrator")
+                except Exception as error:
+                    emit(
+                        RunEvent(
+                            "error",
+                            message=f"Failed to initialize Orchestrator: {error}",
+                        )
+                    )
+                    return
+                execution_agent = CoordinatedSpecialistAgent(
+                    orchestrator,
+                    self._current_agent_name,
+                    self._active_work_item_id,
+                )
+                history_agent = orchestrator
+                history_agent_name = "Orchestrator"
+                return_to_orchestrator = True
 
             try:
                 await run_agent(
                     message,
-                    self._current_agent,
+                    execution_agent,
                     emit=emit,
                     is_cancelled=is_cancelled,
                 )
             finally:
-                if self._current_agent_name:
-                    save_history(self._current_agent, self._current_agent_name)
+                if return_to_orchestrator:
+                    self._current_agent = history_agent
+                    self._current_agent_name = history_agent_name
+                if history_agent_name:
+                    save_history(history_agent, history_agent_name)
         elif self._init_error:
             emit(RunEvent("error", message=self._init_error))
         else:

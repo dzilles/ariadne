@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 from src.ariadne.policies.defaults import DEFAULT_POLICY, READ_ONLY_TOOL_NAMES
 from src.ariadne.policies import registry
+from src.ariadne.policies.loader import _ensure_terminal_completion_tools
 
 
 class FakeToolSource:
@@ -59,10 +60,31 @@ def test_completion_tool_is_available_to_delegated_agents_only():
     for agent_name, policy in DEFAULT_POLICY["agents"].items():
         tools = set(policy["tools"])
         if agent_name == "Orchestrator":
+            assert "return_to_orchestrator" not in tools
             assert "finish_agent_run" not in tools
         else:
+            assert "return_to_orchestrator" in tools
             assert "finish_agent_run" in tools
 
-    completion_policy = DEFAULT_POLICY["tools"]["finish_agent_run"]
-    assert completion_policy["checks"] == []
-    assert completion_policy["return_direct"] is True
+    for tool_name in ("return_to_orchestrator", "finish_agent_run"):
+        completion_policy = DEFAULT_POLICY["tools"][tool_name]
+        assert completion_policy["checks"] == []
+        assert completion_policy["return_direct"] is True
+
+
+def test_older_policy_overrides_keep_required_terminal_tools():
+    policy = {
+        "agents": {
+            "Requirements": {
+                "tools": ["get_work_item", "finish_agent_run"],
+            }
+        }
+    }
+
+    _ensure_terminal_completion_tools(policy)
+
+    assert policy["agents"]["Requirements"]["tools"] == [
+        "get_work_item",
+        "return_to_orchestrator",
+        "finish_agent_run",
+    ]

@@ -37,6 +37,16 @@ class FakeAgent:
         self.cleared = True
 
 
+class FakeOrchestrator(FakeAgent):
+    def __init__(self):
+        super().__init__()
+        self.delegations = []
+
+    def delegate_to_agent(self, agent_name, work_item_id, task_description):
+        self.delegations.append((agent_name, work_item_id, task_description))
+        return "coordinated specialist result"
+
+
 def test_load_chat_history_loads_all_agent_contexts(monkeypatch):
     loaded = []
 
@@ -203,6 +213,62 @@ def test_handle_user_message_without_agent_emits_error_event():
     assert events == [
         RunEvent("error", message="No agent selected. Use /agent to select one.")
     ]
+
+
+def test_selected_specialist_requires_active_work_item():
+    controller = AriadneApplicationController(
+        {"Orchestrator": FakeOrchestrator, "Requirements": FakeAgent},
+        {"Orchestrator": "coordinator", "Requirements": "specialist"},
+        reset_session_approval_func=lambda: None,
+    )
+    controller.switch_agent("Requirements")
+    events = []
+
+    asyncio.run(
+        controller.handle_user_message(
+            "Write requirements.",
+            emit=events.append,
+            is_cancelled=lambda: False,
+        )
+    )
+
+    assert events == [
+        RunEvent(
+            "error",
+            message="Select or activate a work item before running a specialist agent.",
+        )
+    ]
+    assert controller.current_agent_name == "Requirements"
+
+
+def test_selected_specialist_runs_through_orchestrator_and_returns_control(monkeypatch):
+    monkeypatch.setattr(controller_module, "save_history", lambda agent, name: True)
+    controller = AriadneApplicationController(
+        {"Orchestrator": FakeOrchestrator, "Requirements": FakeAgent},
+        {"Orchestrator": "coordinator", "Requirements": "specialist"},
+        reset_session_approval_func=lambda: None,
+    )
+    controller.switch_agent("Requirements")
+    controller.set_active_work_item_id("17")
+    events = []
+
+    asyncio.run(
+        controller.handle_user_message(
+            "Write requirements.",
+            emit=events.append,
+            is_cancelled=lambda: False,
+        )
+    )
+
+    orchestrator = controller.current_agent
+    assert controller.current_agent_name == "Orchestrator"
+    assert orchestrator.delegations == [
+        ("Requirements", "17", "Write requirements.")
+    ]
+    assert any(
+        event.type == "complete" and event.message == "coordinated specialist result"
+        for event in events
+    )
 
 
 def test_handle_user_message_queues_when_run_is_active():

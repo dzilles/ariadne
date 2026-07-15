@@ -50,6 +50,24 @@ def _load_override(path: str) -> dict[str, Any]:
         return json.load(policy_file)
 
 
+def _ensure_terminal_completion_tools(data: dict[str, Any]) -> None:
+    """Keep mandatory specialist terminal tools when older policies override lists."""
+    default_specialists = set(DEFAULT_POLICY["agents"]) - {"Orchestrator"}
+    for agent_name in default_specialists:
+        agent_policy = data.get("agents", {}).get(agent_name)
+        if not isinstance(agent_policy, dict):
+            continue
+        tools = agent_policy.setdefault("tools", [])
+        if "return_to_orchestrator" not in tools:
+            try:
+                alias_index = tools.index("finish_agent_run")
+            except ValueError:
+                alias_index = len(tools)
+            tools.insert(alias_index, "return_to_orchestrator")
+        if "finish_agent_run" not in tools:
+            tools.append("finish_agent_run")
+
+
 @lru_cache(maxsize=1)
 def get_policy() -> AgentToolPolicy:
     """Return the effective policy, including optional local overrides."""
@@ -59,6 +77,7 @@ def get_policy() -> AgentToolPolicy:
     base["workflow"] = _workflow_defaults()
     policy_path = getattr(settings, "agent_policy_path", ".ariadne/agent_policy.json")
     data = _deep_merge(base, _load_override(policy_path))
+    _ensure_terminal_completion_tools(data)
     try:
         return AgentToolPolicy.model_validate(data)
     except ValidationError as e:

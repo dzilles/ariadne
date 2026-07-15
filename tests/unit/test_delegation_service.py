@@ -1,6 +1,5 @@
-import json
-
-from src.ariadne.agents.orchestrator_agent import OrchestratorAgent
+from src.ariadne.application.delegation import DelegationService
+from src.ariadne.work_items.models import AgentCompletion, AgentRunStatus
 
 
 class FakeWorkItemTools:
@@ -25,7 +24,9 @@ class FakeWorkItemTools:
         agent_run_id=None,
         metadata=None,
     ):
-        self.links.append((work_item_id, title, url, artifact_type, agent_run_id, metadata or {}))
+        self.links.append(
+            (work_item_id, title, url, artifact_type, agent_run_id, metadata or {})
+        )
         return "ok"
 
     def append_shared_context(
@@ -36,7 +37,9 @@ class FakeWorkItemTools:
         agent_run_id=None,
         metadata=None,
     ):
-        self.shared_context.append((work_item_id, author, context, agent_run_id, metadata or {}))
+        self.shared_context.append(
+            (work_item_id, author, context, agent_run_id, metadata or {})
+        )
         return "ok"
 
     def update_status(self, work_item_id, status):
@@ -48,40 +51,50 @@ class FakeWorkItemTools:
         return "ok"
 
 
+def _service(tools=None):
+    return DelegationService(
+        tools or FakeWorkItemTools(),
+        agent_factories={},
+        project_path=".",
+    )
+
+
 def test_check_clean_git_status_blocks_dirty_worktree(monkeypatch):
-    agent = OrchestratorAgent.__new__(OrchestratorAgent)
+    service = _service()
     monkeypatch.setattr(
-        agent,
+        service,
         "_run_git",
         lambda args: {"returncode": 0, "stdout": " M src/app.py", "stderr": ""},
     )
 
-    result = agent._check_clean_git_status()
+    result = service._check_clean_git_status()
 
-    assert result.startswith("⛔ BLOCK: Cannot delegate")
+    assert result.startswith("BLOCK: Cannot delegate")
     assert "M src/app.py" in result
 
 
 def test_check_clean_git_status_allows_clean_worktree(monkeypatch):
-    agent = OrchestratorAgent.__new__(OrchestratorAgent)
+    service = _service()
     monkeypatch.setattr(
-        agent,
+        service,
         "_run_git",
         lambda args: {"returncode": 0, "stdout": "", "stderr": ""},
     )
 
-    assert agent._check_clean_git_status() == ""
+    assert service._check_clean_git_status() == ""
 
 
 def test_format_handoff_context_uses_completion_and_evidence():
-    agent = OrchestratorAgent.__new__(OrchestratorAgent)
+    service = _service()
     completion = {
         "status": "SUCCESS",
         "summary": "Created requirement.",
         "details": "Added acceptance criteria.",
         "decisions": ["Use structured handoff."],
         "blockers": [],
-        "artifacts": [{"title": "REQ-1", "url": "docs/REQ-1.md", "type": "requirement"}],
+        "artifacts": [
+            {"title": "REQ-1", "url": "docs/REQ-1.md", "type": "requirement"}
+        ],
     }
     evidence = {
         "branch": "main",
@@ -91,9 +104,8 @@ def test_format_handoff_context_uses_completion_and_evidence():
         "diff_stat": "1 file changed",
     }
 
-    context = agent._format_handoff_context(
+    context = service._format_handoff_context(
         "Requirements",
-        "",
         completion,
         evidence,
     )
@@ -107,36 +119,32 @@ def test_format_handoff_context_uses_completion_and_evidence():
     assert "- Changed files: docs/REQ-1.md" in context
 
 
-def test_parse_agent_completion_reads_marked_json():
-    agent = OrchestratorAgent.__new__(OrchestratorAgent)
-    payload = {"status": "SUCCESS", "summary": "Done"}
-    response = "[AGENT_RUN_COMPLETE]\n" + json.dumps(payload)
-
-    parsed = agent._parse_agent_completion(response)
-
-    assert parsed["schema_version"] == 1
-    assert parsed["status"] == "SUCCESS"
-    assert parsed["summary"] == "Done"
-    assert parsed["artifacts"] == []
-
-
 def test_apply_agent_run_to_work_item_records_new_commit_and_artifacts():
-    agent = OrchestratorAgent.__new__(OrchestratorAgent)
     tools = FakeWorkItemTools()
-    agent.ticket_tools = tools
-    completion = {
-        "status": "SUCCESS",
-        "artifacts": [
-            {"title": "Spec", "url": "docs/spec.md", "type": "requirement", "phase": "analysis"},
-            {"name": "Design", "path": "docs/design.md", "type": "design"},
-        ],
-    }
-    evidence = {
-        "starting_commit": "abc123",
-        "latest_commit": "def456",
-    }
+    service = _service(tools)
+    completion = AgentCompletion.model_validate(
+        {
+            "status": "SUCCESS",
+            "summary": "Created artifacts.",
+            "artifacts": [
+                {
+                    "title": "Spec",
+                    "url": "docs/spec.md",
+                    "type": "requirement",
+                    "metadata": {"phase": "analysis"},
+                },
+                {"title": "Design", "url": "docs/design.md", "type": "design"},
+            ],
+        }
+    )
+    evidence = {"starting_commit": "abc123", "latest_commit": "def456"}
 
-    agent._apply_agent_run_to_work_item("7", completion, evidence, agent_run_id="99")
+    service._apply_agent_run_to_work_item(
+        "7",
+        completion,
+        evidence,
+        agent_run_id="99",
+    )
 
     assert tools.commit_hashes == [("7", "def456")]
     assert tools.links == [
@@ -145,15 +153,16 @@ def test_apply_agent_run_to_work_item_records_new_commit_and_artifacts():
     ]
 
 
-def test_apply_agent_run_to_work_item_ignores_failed_or_unchanged_runs():
-    agent = OrchestratorAgent.__new__(OrchestratorAgent)
+def test_apply_agent_run_to_work_item_ignores_unchanged_commit():
     tools = FakeWorkItemTools()
-    agent.ticket_tools = tools
+    service = _service(tools)
+    completion = AgentCompletion(status="SUCCESS", summary="Done")
 
-    agent._apply_agent_run_to_work_item(
+    service._apply_agent_run_to_work_item(
         "7",
-        {"status": "SUCCESS", "artifacts": []},
+        completion,
         {"starting_commit": "abc123", "latest_commit": "abc123"},
+        agent_run_id="99",
     )
 
     assert tools.commit_hashes == []
@@ -161,25 +170,25 @@ def test_apply_agent_run_to_work_item_ignores_failed_or_unchanged_runs():
 
 
 def test_apply_agent_run_to_work_item_blocks_and_comments_on_failed_run():
-    agent = OrchestratorAgent.__new__(OrchestratorAgent)
     tools = FakeWorkItemTools()
-    agent.ticket_tools = tools
+    service = _service(tools)
+    completion = AgentCompletion(
+        status="FAILED",
+        summary="Could not write requirement.",
+        details="Template was missing.",
+        blockers=["Need requirements template."],
+        artifacts=[{"title": "Spec", "url": "docs/spec.md"}],
+    )
 
-    agent._apply_agent_run_to_work_item(
+    service._apply_agent_run_to_work_item(
         "7",
-        {
-            "status": "FAILED",
-            "summary": "Could not write requirement.",
-            "details": "Template was missing.",
-            "blockers": ["Need requirements template."],
-            "artifacts": [{"title": "Spec", "url": "docs/spec.md"}],
-        },
+        completion,
         {"starting_commit": "abc123", "latest_commit": "def456"},
+        agent_run_id="99",
     )
 
     assert tools.status_updates == [("7", "Blocked")]
     assert len(tools.comments) == 1
-    assert tools.comments[0][0] == "7"
     assert "Summary: Could not write requirement." in tools.comments[0][1]
     assert "Template was missing." in tools.comments[0][1]
     assert "- Need requirements template." in tools.comments[0][1]
@@ -188,26 +197,25 @@ def test_apply_agent_run_to_work_item_blocks_and_comments_on_failed_run():
 
 
 def test_append_agent_handoff_context_links_context_to_agent_run():
-    agent = OrchestratorAgent.__new__(OrchestratorAgent)
     tools = FakeWorkItemTools()
-    agent.ticket_tools = tools
-    completion = {
-        "status": "SUCCESS",
-        "summary": "Finished design.",
-        "artifacts": [{"title": "Design", "url": "docs/design.md"}],
-    }
+    service = _service(tools)
+    completion = AgentCompletion(
+        status="SUCCESS",
+        summary="Finished design.",
+        artifacts=[{"title": "Design", "url": "docs/design.md"}],
+    )
     evidence = {
         "latest_commit": "abc123",
         "changed_files": ["docs/design.md"],
     }
 
-    agent._append_agent_handoff_context(
+    service._append_agent_handoff_context(
         "7",
         "Architect",
-        "",
-        evidence=evidence,
-        completion=completion,
+        completion,
+        evidence,
         agent_run_id="99",
+        run_status=AgentRunStatus.SUCCESS,
     )
 
     assert len(tools.shared_context) == 1

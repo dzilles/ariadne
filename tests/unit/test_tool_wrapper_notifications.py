@@ -254,3 +254,20 @@ def test_return_direct_policy_wraps_callable_as_structured_tool(monkeypatch):
     assert wrapped[0].name == "finish_agent_run"
     assert wrapped[0].return_direct is True
     assert wrapped[0].invoke({"status": "SUCCESS", "comment": "Done"}) == "[SUCCESS] Done"
+
+
+def test_return_to_orchestrator_policy_is_return_direct(monkeypatch):
+    monkeypatch.setattr(tool_wrapper, "_approval_callback", None)
+    monkeypatch.setattr(tool_wrapper, "_approval_enabled", False)
+
+    def return_to_orchestrator(status: str, summary: str) -> str:
+        """Return a typed completion."""
+        return f"[{status}] {summary}"
+
+    wrapped = tool_wrapper.wrap_tools_with_error_handling([return_to_orchestrator])
+
+    assert wrapped[0].name == "return_to_orchestrator"
+    assert wrapped[0].return_direct is True
+    assert wrapped[0].invoke({"status": "SUCCESS", "summary": "Done"}) == (
+        "[SUCCESS] Done"
+    )

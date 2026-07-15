@@ -16,8 +16,12 @@ def _tool_func(tool):
 
 
 class FakeAgentRunTools:
+    def return_to_orchestrator(self):
+        """Typed agent completion handoff."""
+        return "orchestrator"
+
     def finish_agent_run(self):
-        """Agent completion handoff."""
+        """Compatibility agent completion handoff."""
         return "agent-run"
 
 
@@ -61,7 +65,7 @@ class FakeShellTools:
         return "shell"
 
 
-def test_delegated_agents_resolve_finish_agent_run_to_completion_tool(monkeypatch):
+def test_delegated_agents_resolve_terminal_tools_to_completion_recorder(monkeypatch):
     monkeypatch.setattr(BaseAgent, "__init__", lambda self: None)
     monkeypatch.setattr(
         BaseAgent,
@@ -86,6 +90,9 @@ def test_delegated_agents_resolve_finish_agent_run_to_completion_tool(monkeypatc
 
     for agent in agents:
         tools = _tool_names(agent)
+        assert "return_to_orchestrator" in tools
         assert "finish_agent_run" in tools
+        return_tool = agent.tools[tools.index("return_to_orchestrator")]
         finish_tool = agent.tools[tools.index("finish_agent_run")]
+        assert _tool_func(return_tool)() == "orchestrator"
         assert _tool_func(finish_tool)() == "agent-run"

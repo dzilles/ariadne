@@ -1,17 +1,32 @@
-import json
-
 from src.ariadne.agents.orchestrator_agent import OrchestratorAgent
-from src.ariadne.work_items.models import WorkItemStatus
+from src.ariadne.application.delegation import DelegationService
+from src.ariadne.runtime import run_manager
+from src.ariadne.work_items.models import AgentRunStatus, WorkItemStatus
 
 
-class FakeDelegatedAgent:
-    def __init__(self, response):
-        self.response = response
+class CompletingDelegatedAgent:
+    def __init__(self, agent_run_tools, completion):
+        self.agent_run_tools = agent_run_tools
+        self.completion = completion
         self.prompts = []
 
     def chat(self, prompt):
         self.prompts.append(prompt)
-        return self.response
+        return self.agent_run_tools.return_to_orchestrator(**self.completion)
+
+
+class MalformedDelegatedAgent:
+    def chat(self, prompt):
+        return "Finished without a terminal completion."
+
+
+class DuplicateCompletionAgent:
+    def __init__(self, agent_run_tools):
+        self.agent_run_tools = agent_run_tools
+
+    def chat(self, prompt):
+        self.agent_run_tools.return_to_orchestrator("SUCCESS", "First completion.")
+        return self.agent_run_tools.finish_agent_run("SUCCESS", "Second completion.")
 
 
 class FailingDelegatedAgent:
@@ -79,7 +94,9 @@ class FakeTicketTools:
         agent_run_id=None,
         metadata=None,
     ):
-        self.links.append((work_item_id, title, url, artifact_type, agent_run_id, metadata or {}))
+        self.links.append(
+            (work_item_id, title, url, artifact_type, agent_run_id, metadata or {})
+        )
         return "ok"
 
     def add_commit_hash(self, work_item_id, commit_hash):
@@ -94,7 +111,9 @@ class FakeTicketTools:
         agent_run_id=None,
         metadata=None,
     ):
-        self.shared_context.append((work_item_id, author, context, agent_run_id, metadata or {}))
+        self.shared_context.append(
+            (work_item_id, author, context, agent_run_id, metadata or {})
+        )
         return "ok"
 
 
@@ -116,24 +135,16 @@ def _completion_payload(status="SUCCESS"):
     }
 
 
-def _agent_with_ticket_tools(ticket_tools):
-    agent = OrchestratorAgent.__new__(OrchestratorAgent)
-    agent.ticket_tools = ticket_tools
-    agent.update_work_item = ticket_tools.update_status
-    agent.add_comment = ticket_tools.post_comment
-    return agent
-
-
-def test_delegate_to_agent_records_success_handoff(monkeypatch):
-    ticket_tools = FakeTicketTools()
-    orchestrator = _agent_with_ticket_tools(ticket_tools)
-    completion = _completion_payload()
-    fake_agent = FakeDelegatedAgent("[AGENT_RUN_COMPLETE]\n" + json.dumps(completion))
-
-    monkeypatch.setattr(orchestrator, "_check_clean_git_status", lambda: "")
-    monkeypatch.setattr(orchestrator, "_git_output", lambda args: "abc123")
+def _service(monkeypatch, ticket_tools, agent_factory):
+    service = DelegationService(
+        ticket_tools,
+        agent_factories={"Requirements": agent_factory},
+        project_path=".",
+    )
+    monkeypatch.setattr(service, "_check_clean_git_status", lambda: "")
+    monkeypatch.setattr(service, "_git_output", lambda args: "abc123")
     monkeypatch.setattr(
-        orchestrator,
+        service,
         "_collect_handoff_evidence",
         lambda: {
             "branch": "main",
@@ -143,22 +154,37 @@ def test_delegate_to_agent_records_success_handoff(monkeypatch):
             "latest_commit": "def456",
         },
     )
-    monkeypatch.setattr(
-        "src.ariadne.application.agents.AGENT_CLASSES",
-        {"Requirements": lambda: fake_agent},
-    )
+    return service
 
-    result = orchestrator.delegate_to_agent("Requirements", "17", "Create requirement.")
 
-    assert result.startswith("[Requirements Response]:")
+def test_delegate_records_typed_success_handoff(monkeypatch):
+    ticket_tools = FakeTicketTools()
+    completion = _completion_payload()
+    agents = []
+
+    def agent_factory(agent_run_tools):
+        agent = CompletingDelegatedAgent(agent_run_tools, completion)
+        agents.append(agent)
+        return agent
+
+    service = _service(monkeypatch, ticket_tools, agent_factory)
+
+    result = service.delegate("Requirements", "17", "Create requirement.")
+
+    assert result.run_status == AgentRunStatus.SUCCESS
+    assert result.completion.summary == completion["summary"]
+    assert "[AGENT_RUN_COMPLETE]" not in result.to_orchestrator_message()
     assert ticket_tools.started_runs == [("17", "Requirements", "Create requirement.")]
-    assert ticket_tools.status_updates == [("17", WorkItemStatus.READY_FOR_ANALYSIS.value)]
+    assert ticket_tools.status_updates == [
+        ("17", WorkItemStatus.READY_FOR_ANALYSIS.value)
+    ]
     assert ticket_tools.finished_runs[0][0] == "99"
     assert ticket_tools.finished_runs[0][1] == "SUCCESS"
-    assert ticket_tools.finished_runs[0][2]["summary"] == completion["summary"]
     assert ticket_tools.finished_runs[0][2]["schema_version"] == 1
     assert ticket_tools.finished_runs[0][3]["starting_commit"] == "abc123"
-    assert ticket_tools.finished_runs[0][4]["raw_response"].startswith("[AGENT_RUN_COMPLETE]")
+    assert ticket_tools.finished_runs[0][4]["raw_response"].startswith(
+        "[AGENT_RUN_COMPLETE]"
+    )
     assert ticket_tools.commit_hashes == [("17", "def456")]
     assert ticket_tools.links == [
         (
@@ -170,119 +196,131 @@ def test_delegate_to_agent_records_success_handoff(monkeypatch):
             {"stable_id": "REQ-999"},
         )
     ]
-    assert len(ticket_tools.shared_context) == 1
     assert ticket_tools.shared_context[0][3] == "99"
     assert ticket_tools.shared_context[0][4]["status"] == "SUCCESS"
-    assert "bundle for 17 -> Requirements" in fake_agent.prompts[0]
+    assert "bundle for 17 -> Requirements" in agents[0].prompts[0]
+    assert "`return_to_orchestrator` exactly once" in agents[0].prompts[0]
 
 
-def test_delegate_to_agent_records_failed_handoff(monkeypatch):
+def test_delegate_records_explicit_failed_handoff(monkeypatch):
     ticket_tools = FakeTicketTools()
-    orchestrator = _agent_with_ticket_tools(ticket_tools)
     completion = {
         "status": "FAILED",
         "summary": "Could not complete requirement.",
         "details": "Missing input.",
         "blockers": ["Need user clarification."],
     }
-    fake_agent = FakeDelegatedAgent("[AGENT_RUN_COMPLETE]\n" + json.dumps(completion))
-
-    monkeypatch.setattr(orchestrator, "_check_clean_git_status", lambda: "")
-    monkeypatch.setattr(orchestrator, "_git_output", lambda args: "abc123")
-    monkeypatch.setattr(
-        orchestrator,
-        "_collect_handoff_evidence",
-        lambda: {
-            "branch": "main",
-            "status_short": "",
-            "diff_stat": "",
-            "changed_files": [],
-            "latest_commit": "abc123",
-        },
-    )
-    monkeypatch.setattr(
-        "src.ariadne.application.agents.AGENT_CLASSES",
-        {"Requirements": lambda: fake_agent},
+    service = _service(
+        monkeypatch,
+        ticket_tools,
+        lambda agent_run_tools: CompletingDelegatedAgent(agent_run_tools, completion),
     )
 
-    result = orchestrator.delegate_to_agent("Requirements", "17", "Create requirement.")
+    result = service.delegate("Requirements", "17", "Create requirement.")
 
-    assert result.startswith("[Requirements Response]:")
+    assert result.run_status == AgentRunStatus.FAILED
     assert ticket_tools.finished_runs[0][1] == "FAILED"
     assert ("17", "Blocked") in ticket_tools.status_updates
-    assert any("Need user clarification." in comment for _, comment in ticket_tools.comments)
+    assert any(
+        "Need user clarification." in comment for _, comment in ticket_tools.comments
+    )
     assert ticket_tools.links == []
     assert ticket_tools.commit_hashes == []
 
 
-def test_delegate_to_agent_normalizes_malformed_handoff_as_failure(monkeypatch):
+def test_delegate_normalizes_missing_terminal_completion_as_failure(monkeypatch):
     ticket_tools = FakeTicketTools()
-    orchestrator = _agent_with_ticket_tools(ticket_tools)
-    response = "Success: Finished agent run 99"
-    fake_agent = FakeDelegatedAgent(response)
+    service = _service(monkeypatch, ticket_tools, MalformedDelegatedAgent)
 
-    monkeypatch.setattr(orchestrator, "_check_clean_git_status", lambda: "")
-    monkeypatch.setattr(orchestrator, "_git_output", lambda args: "abc123")
-    monkeypatch.setattr(
-        orchestrator,
-        "_collect_handoff_evidence",
-        lambda: {
-            "branch": "main",
-            "status_short": "",
-            "diff_stat": "",
-            "changed_files": [],
-            "latest_commit": "abc123",
-        },
+    result = service.delegate("Requirements", "17", "Create requirement.")
+
+    assert result.run_status == AgentRunStatus.FAILED
+    assert result.to_orchestrator_message().startswith(
+        "[Requirements Handoff Failure]:"
     )
-    monkeypatch.setattr(
-        "src.ariadne.application.agents.AGENT_CLASSES",
-        {"Requirements": lambda: fake_agent},
+    assert (
+        "did not call return_to_orchestrator exactly once" in result.completion.details
     )
-
-    result = orchestrator.delegate_to_agent("Requirements", "17", "Create requirement.")
-
-    assert result.startswith("[Requirements Handoff Failure]:")
-    assert "required [AGENT_RUN_COMPLETE] marker" in result
     finished = ticket_tools.finished_runs[0]
-    assert finished[1] == "FAILED"
-    assert finished[2]["summary"] == "Requirements returned an invalid completion handoff."
-    assert "required [AGENT_RUN_COMPLETE] marker" in finished[2]["details"]
-    assert finished[4]["raw_response"] == response
+    assert (
+        finished[2]["summary"] == "Requirements returned an invalid completion handoff."
+    )
+    assert finished[4]["raw_response"] == "Finished without a terminal completion."
     assert finished[4]["diagnostics"]["failure_kind"] == "invalid_completion"
     assert ("17", "Blocked") in ticket_tools.status_updates
-    assert ticket_tools.shared_context[0][4]["status"] == "FAILED"
 
 
-def test_delegate_to_agent_records_exception_diagnostics_and_handoff(monkeypatch):
+def test_delegate_rejects_duplicate_terminal_completion(monkeypatch):
     ticket_tools = FakeTicketTools()
-    orchestrator = _agent_with_ticket_tools(ticket_tools)
+    service = _service(monkeypatch, ticket_tools, DuplicateCompletionAgent)
 
-    monkeypatch.setattr(orchestrator, "_check_clean_git_status", lambda: "")
-    monkeypatch.setattr(orchestrator, "_git_output", lambda args: "abc123")
-    monkeypatch.setattr(
-        orchestrator,
-        "_collect_handoff_evidence",
-        lambda: {
-            "branch": "main",
-            "status_short": "",
-            "diff_stat": "",
-            "changed_files": [],
-            "latest_commit": "abc123",
-        },
-    )
-    monkeypatch.setattr(
-        "src.ariadne.application.agents.AGENT_CLASSES",
-        {"Requirements": FailingDelegatedAgent},
+    result = service.delegate("Requirements", "17", "Create requirement.")
+
+    assert result.run_status == AgentRunStatus.FAILED
+    assert "more than once" in result.completion.details
+    assert ticket_tools.finished_runs[0][4]["diagnostics"]["failure_kind"] == (
+        "invalid_completion"
     )
 
-    result = orchestrator.delegate_to_agent("Requirements", "17", "Create requirement.")
 
-    assert result == "Error delegating to Requirements: provider unavailable"
+def test_delegate_records_exception_diagnostics_and_handoff(monkeypatch):
+    ticket_tools = FakeTicketTools()
+    service = _service(monkeypatch, ticket_tools, FailingDelegatedAgent)
+
+    result = service.delegate("Requirements", "17", "Create requirement.")
+
+    assert result.to_orchestrator_message() == (
+        "Error delegating to Requirements: provider unavailable"
+    )
     finished = ticket_tools.finished_runs[0]
     assert finished[1] == "FAILED"
-    assert finished[2]["status"] == "FAILED"
     assert finished[4]["diagnostics"]["failure_kind"] == "exception"
     assert finished[4]["diagnostics"]["error_type"] == "RuntimeError"
     assert "provider unavailable" in finished[4]["diagnostics"]["traceback"]
     assert ("17", "Blocked") in ticket_tools.status_updates
-    assert ticket_tools.shared_context[0][4]["status"] == "FAILED"
+
+
+def test_delegate_finalizes_cancelled_run_without_blocking_ticket(monkeypatch):
+    ticket_tools = FakeTicketTools()
+    service = _service(
+        monkeypatch,
+        ticket_tools,
+        lambda agent_run_tools: CompletingDelegatedAgent(
+            agent_run_tools,
+            _completion_payload(),
+        ),
+    )
+    monkeypatch.setattr(run_manager, "is_cancel_requested", lambda: True)
+
+    result = service.delegate("Requirements", "17", "Create requirement.")
+
+    assert result.run_status == AgentRunStatus.CANCELLED
+    assert ticket_tools.finished_runs[0][1] == "CANCELLED"
+    assert ticket_tools.finished_runs[0][4]["diagnostics"]["failure_kind"] == (
+        "cancelled"
+    )
+    assert ("17", "Blocked") not in ticket_tools.status_updates
+    assert ticket_tools.shared_context[0][4]["status"] == "CANCELLED"
+
+
+def test_orchestrator_presents_service_result_without_parsing_response():
+    class FakeResult:
+        def to_orchestrator_message(self):
+            return "typed completion"
+
+    class FakeService:
+        def delegate(self, agent_name, work_item_id, task_description):
+            assert (agent_name, work_item_id, task_description) == (
+                "Requirements",
+                "17",
+                "Create requirement.",
+            )
+            return FakeResult()
+
+    orchestrator = OrchestratorAgent.__new__(OrchestratorAgent)
+    orchestrator.delegation_service = FakeService()
+
+    assert (
+        orchestrator.delegate_to_agent("Requirements", "17", "Create requirement.")
+        == "typed completion"
+    )
