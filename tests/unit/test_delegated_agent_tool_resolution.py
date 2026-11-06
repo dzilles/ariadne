@@ -5,10 +5,13 @@ from src.ariadne.agents.qa_agent import QualityAssuranceAgent
 from src.ariadne.agents.qm_agent import QMAgent
 from src.ariadne.agents.requirements_agent import RequirementsAgent
 from src.ariadne.agents.tester_agent import TesterAgent as AriadneTesterAgent
+from src.ariadne.policies.loader import get_policy
 
 
 def _tool_names(agent):
-    return [getattr(tool, "name", getattr(tool, "__name__", "")) for tool in agent.tools]
+    return [
+        getattr(tool, "name", getattr(tool, "__name__", "")) for tool in agent.tools
+    ]
 
 
 def _tool_func(tool):
@@ -66,11 +69,15 @@ class FakeShellTools:
 
 
 def test_delegated_agents_resolve_terminal_tools_to_completion_recorder(monkeypatch):
+    def capture_executor(self, tools, system_message):
+        self.tools = tools
+        self.system_message = system_message
+
     monkeypatch.setattr(BaseAgent, "__init__", lambda self: None)
     monkeypatch.setattr(
         BaseAgent,
         "_init_executor",
-        lambda self, tools, system_message: setattr(self, "tools", tools),
+        capture_executor,
     )
 
     work_item_tools = FakeWorkItemTools()
@@ -79,20 +86,57 @@ def test_delegated_agents_resolve_terminal_tools_to_completion_recorder(monkeypa
     shell_tools = FakeShellTools()
     agent_run_tools = FakeAgentRunTools()
 
-    agents = [
-        RequirementsAgent(work_item_tools, file_tools, git_tools, agent_run_tools),
-        QMAgent(work_item_tools, file_tools, agent_run_tools),
-        ArchitectAgent(work_item_tools, file_tools, git_tools, shell_tools, agent_run_tools),
-        DeveloperAgent(work_item_tools, file_tools, git_tools, shell_tools, agent_run_tools),
-        AriadneTesterAgent(work_item_tools, file_tools, git_tools, shell_tools, agent_run_tools),
-        QualityAssuranceAgent(work_item_tools, file_tools, agent_run_tools),
-    ]
+    agents = {
+        "Requirements": RequirementsAgent(
+            work_item_tools, file_tools, git_tools, agent_run_tools
+        ),
+        "QM": QMAgent(work_item_tools, file_tools, agent_run_tools),
+        "Architect": ArchitectAgent(
+            work_item_tools,
+            file_tools,
+            git_tools,
+            shell_tools,
+            agent_run_tools,
+        ),
+        "Developer": DeveloperAgent(
+            work_item_tools,
+            file_tools,
+            git_tools,
+            shell_tools,
+            agent_run_tools,
+        ),
+        "Tester": AriadneTesterAgent(
+            work_item_tools,
+            file_tools,
+            git_tools,
+            shell_tools,
+            agent_run_tools,
+        ),
+        "QA": QualityAssuranceAgent(work_item_tools, file_tools, agent_run_tools),
+    }
 
-    for agent in agents:
+    policy = get_policy()
+    forbidden_prompt_tools = {
+        "update_status",
+        "approve_gate",
+        "reject_gate",
+        "add_link",
+        "add_commit_hash",
+        "append_shared_context",
+        "update_git_metadata",
+        "search_file_content",
+        "<thought>",
+    }
+    for agent_name, agent in agents.items():
         tools = _tool_names(agent)
+        assert tools == policy.agents[agent_name].tools
         assert "return_to_orchestrator" in tools
         assert "finish_agent_run" in tools
         return_tool = agent.tools[tools.index("return_to_orchestrator")]
         finish_tool = agent.tools[tools.index("finish_agent_run")]
         assert _tool_func(return_tool)() == "orchestrator"
         assert _tool_func(finish_tool)() == "agent-run"
+        assert all(
+            forbidden not in agent.system_message
+            for forbidden in forbidden_prompt_tools
+        ), agent_name

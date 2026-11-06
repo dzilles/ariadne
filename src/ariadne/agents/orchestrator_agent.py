@@ -14,6 +14,7 @@ from src.ariadne.infrastructure.container import DependencyRegistry
 
 logger = logging.getLogger(__name__)
 
+
 class OrchestratorAgent(BaseAgent):
     """
     Orchestrator Agent responsible for coordinating the workflow and high-level planning.
@@ -47,7 +48,10 @@ class OrchestratorAgent(BaseAgent):
                 "delegate_to_agent": self.delegate_to_agent,
             },
         )
-        self.tools = wrap_tools_with_error_handling(raw_tools)
+        self.tools = wrap_tools_with_error_handling(
+            raw_tools,
+            agent_name="Orchestrator",
+        )
 
         self.tool_docs = build_tool_docs(raw_tools)
 
@@ -89,7 +93,9 @@ class OrchestratorAgent(BaseAgent):
                 check=False,
             )
         except FileNotFoundError:
-            return self._search_codebase_without_rg(query, directory, file_glob, max_results)
+            return self._search_codebase_without_rg(
+                query, directory, file_glob, max_results
+            )
         except Exception as e:
             return f"Error searching codebase: {e}"
 
@@ -187,9 +193,14 @@ class OrchestratorAgent(BaseAgent):
                         for line_number, line in enumerate(candidate, start=1):
                             if query in line:
                                 rel_path = os.path.relpath(path, project_root)
-                                matches.append(f"{rel_path}:{line_number}:{line.rstrip()}")
+                                matches.append(
+                                    f"{rel_path}:{line_number}:{line.rstrip()}"
+                                )
                                 if len(matches) >= max_results:
-                                    return "\n".join(matches) + f"\n... truncated after {max_results} matches"
+                                    return (
+                                        "\n".join(matches)
+                                        + f"\n... truncated after {max_results} matches"
+                                    )
                 except UnicodeDecodeError:
                     continue
                 except OSError:
@@ -240,18 +251,19 @@ When using `delegate_to_agent`, you MUST structure your `task_description` as fo
 1. **Goal:** Clear statement of the desired outcome.
 2. **Knowledge Summary:** Summarize what you already know (e.g., from comments or previous steps) so the agent doesn't have to re-discover it.
 3. **Primary Manifests (Discovery-by-Query):** List the EXACT files or directories the agent should examine. 
-    *   **Crucial:** If this is a refinement task (updating an existing requirement or design), you MUST discover the existing file path first. Do this by checking the `Links` attached to the parent work item using `get_work_item`, or by listing likely artifact directories with `list_files`. Do NOT assume the file is named after the work item ID. Provide the discovered file path here.
+    *   **Crucial:** If this is a refinement task (updating an existing requirement or design), you MUST discover the existing file path first. Do this by checking the artifacts attached to the current work item using `get_work_item`, or by listing likely artifact directories with `list_files`. Do NOT assume the file is named after the work item ID. Provide the discovered file path here.
     *   Tell them: "Your primary context is in [Files]. You should prioritize these. If you identify a dependency outside this list, you may explore it, but you MUST state your reasoning in your 'Thought'."
-4. **Expected Artifact:** Define the expected outcome (e.g., "Updated docs/requirements/REQ-005.md and attached to the work item via add_link").
+4. **Expected Artifact:** Define the expected outcome (e.g., "Update docs/requirements/REQ-005.md and report it in the typed completion artifacts").
 
 ### Responsibilities:
 1. **Monitor:** Track work item status and progress in the project management system.
-2. **Delegate:** Sequential dispatch: REQ -> ARCH -> DEV -> TEST -> QA.
-3. **Validate:** Ensure agents return [SUCCESS] and produce the required artifacts.
+2. **Delegate:** Route only to the specialist that owns the work item's current workflow state.
+3. **Validate:** Use typed specialist completion and durable finalization results; do not infer success from prose alone.
 4. **Escalations:** If an agent is blocked or hits a recursion limit, analyze the failure and provide narrower instructions.
 
 ### V-Model Sequence:
 - [REQ] Requirements Agent (Output: docs/requirements/REQ-*.md)
+- [QM] Quality Manager (Output: analysis gate decision)
 - [ARCH] Architect Agent (Output: docs/design/ARCH-*.md)
 - [DEV] Developer Agent (Output: Source Code)
 - [TEST] Tester Agent (Output: tests/*.py)

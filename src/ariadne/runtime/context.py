@@ -1,5 +1,8 @@
 import logging
 import contextvars
+from contextlib import contextmanager
+from dataclasses import dataclass
+from collections.abc import Iterator
 from typing import Callable, Optional
 
 logger = logging.getLogger(__name__)
@@ -9,11 +12,26 @@ logger = logging.getLogger(__name__)
 _active_work_item_id: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
     "_active_work_item_id", default=None
 )
+
+
+@dataclass(frozen=True)
+class DelegationContext:
+    """Identity and workflow state for one active specialist delegation."""
+
+    work_item_id: str
+    agent_name: str
+    agent_run_id: str
+    entry_status: str
+
+
+_active_delegation: contextvars.ContextVar[Optional[DelegationContext]] = (
+    contextvars.ContextVar("_active_delegation", default=None)
+)
 _active_work_item_change_callback: Optional[Callable[[Optional[str]], None]] = None
 
 
 def set_active_work_item_change_callback(
-    callback: Optional[Callable[[Optional[str]], None]]
+    callback: Optional[Callable[[Optional[str]], None]],
 ) -> None:
     """Register a callback for active work item changes."""
     global _active_work_item_change_callback
@@ -41,6 +59,21 @@ def set_active_work_item_id(work_item_id: Optional[str]):
 def get_active_work_item_id() -> Optional[str]:
     """Retrieve the active work item ID for the current execution context."""
     return _active_work_item_id.get()
+
+
+def get_active_delegation() -> Optional[DelegationContext]:
+    """Return the active specialist delegation, if execution is delegated."""
+    return _active_delegation.get()
+
+
+@contextmanager
+def delegation_scope(context: DelegationContext) -> Iterator[DelegationContext]:
+    """Install one delegation context and restore the previous value afterward."""
+    token = _active_delegation.set(context)
+    try:
+        yield context
+    finally:
+        _active_delegation.reset(token)
 
 
 def set_active_ticket_id(ticket_id: Optional[str]):

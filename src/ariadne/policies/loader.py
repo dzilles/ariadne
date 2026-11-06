@@ -30,7 +30,7 @@ def _workflow_defaults() -> dict[str, Any]:
     workflow = {}
     for rule in WORKFLOW_RULES:
         allowed_tools = {tool: {} for tool in rule.allowed_actions}
-        if rule.next_state:
+        if rule.next_state and rule.agent_name == "Orchestrator":
             allowed_tools.setdefault("update_status", {})
             allowed_tools["update_status"]["allowed_targets"] = [
                 rule.next_state.value,
@@ -39,6 +39,13 @@ def _workflow_defaults() -> dict[str, Any]:
         workflow[rule.current_state.value] = {
             "owner": rule.agent_name,
             "allowed_tools": allowed_tools,
+            "next_state": rule.next_state.value if rule.next_state else None,
+            "required_artifact_pattern": rule.required_artifact_pattern,
+            "gate_to_update": rule.gate_to_update,
+            "entry_required_artifact_patterns": rule.entry_required_artifact_patterns,
+            "entry_required_gates": rule.entry_required_gates,
+            "requires_clean_worktree": rule.requires_clean_worktree,
+            "requires_verification": rule.requires_verification,
         }
     return workflow
 

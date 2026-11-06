@@ -26,6 +26,7 @@ class ToolNotification:
     args: dict
     result: str = ""
 
+
 # Global approval state
 _approval_callback: Optional[Callable[[str, dict], Any]] = None
 _tool_notify_callback: Optional[Callable[[ToolNotification], None]] = None
@@ -36,7 +37,9 @@ APPROVAL_TIMEOUT_SECONDS = 300
 APPROVAL_POLL_INTERVAL_SECONDS = 0.1
 
 
-def set_approval_callback(callback: Callable[[str, dict], Any], loop: asyncio.AbstractEventLoop = None) -> None:
+def set_approval_callback(
+    callback: Callable[[str, dict], Any], loop: asyncio.AbstractEventLoop = None
+) -> None:
     """Set the async approval callback.
 
     Args:
@@ -178,6 +181,7 @@ def _request_approval_sync(
 
     approval_future = None
     try:
+
         async def run_approval():
             result = _approval_callback(tool_name, args)
             if inspect.isawaitable(result):
@@ -222,24 +226,31 @@ def _wait_for_approval_result(approval_future: Any, tool_name: str) -> str:
         time.sleep(min(APPROVAL_POLL_INTERVAL_SECONDS, remaining))
 
 
-def with_error_handling(func: Callable) -> Callable:
+def with_error_handling(func: Callable, *, agent_name: str | None = None) -> Callable:
     """Decorator that catches exceptions and optionally requests approval.
     Implementation of ARCH-15. Fulfills REQ-15.
 
     Preserves function metadata (name, docstring, annotations) for LangChain/LangGraph.
     """
+
     @functools.wraps(func)
     def wrapper(*args, **kwargs) -> Any:
         tool_name = func.__name__
         tool_args = _serialize_tool_args(args, kwargs)
 
         if is_cancel_requested():
-            result = f"[Tool Cancelled: {tool_name}] Run cancellation requested by user."
+            result = (
+                f"[Tool Cancelled: {tool_name}] Run cancellation requested by user."
+            )
             _notify_tool(tool_name, "cancelled", tool_args, result)
             _audit_tool_call(tool_name, "cancelled", tool_args, result)
             return result
 
-        decision = evaluate_tool_call(tool_name, tool_args)
+        decision = evaluate_tool_call(
+            tool_name,
+            tool_args,
+            agent_name=agent_name,
+        )
         if not decision.allowed:
             result = decision.reason
             _notify_tool(tool_name, "cancelled", tool_args, result)
@@ -275,7 +286,9 @@ def with_error_handling(func: Callable) -> Callable:
 
         try:
             if is_cancel_requested():
-                result = f"[Tool Cancelled: {tool_name}] Run cancellation requested by user."
+                result = (
+                    f"[Tool Cancelled: {tool_name}] Run cancellation requested by user."
+                )
                 _notify_tool(tool_name, "cancelled", tool_args, result)
                 _audit_tool_call(tool_name, "cancelled", tool_args, result)
                 return result
@@ -308,7 +321,11 @@ def with_error_handling(func: Callable) -> Callable:
     return wrapper
 
 
-def wrap_tools_with_error_handling(tools: list) -> list:
+def wrap_tools_with_error_handling(
+    tools: list,
+    *,
+    agent_name: str | None = None,
+) -> list:
     """Wrap a list of tools/functions with error handling.
 
     Args:
@@ -320,7 +337,7 @@ def wrap_tools_with_error_handling(tools: list) -> list:
     wrapped = []
     for tool in tools:
         if callable(tool):
-            wrapped_tool = with_error_handling(tool)
+            wrapped_tool = with_error_handling(tool, agent_name=agent_name)
             if _is_tool_return_direct(wrapped_tool.__name__):
                 wrapped.append(_as_return_direct_tool(wrapped_tool))
             else:

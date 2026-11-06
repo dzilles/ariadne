@@ -1,6 +1,9 @@
 """Backward-compatible workflow context imports."""
 
 from src.ariadne.runtime.context import (
+    DelegationContext,
+    delegation_scope,
+    get_active_delegation,
     get_active_ticket_id,
     get_active_work_item_id,
     notify_active_work_item_changed,
@@ -10,6 +13,9 @@ from src.ariadne.runtime.context import (
 )
 
 __all__ = [
+    "DelegationContext",
+    "delegation_scope",
+    "get_active_delegation",
     "get_active_ticket_id",
     "get_active_work_item_id",
     "notify_active_work_item_changed",

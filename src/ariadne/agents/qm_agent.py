@@ -1,11 +1,11 @@
 import logging
 from src.ariadne.agents.base_agent import BaseAgent
-from src.ariadne.tools.file_tools import FileAgentTools
 from src.ariadne.policies.registry import build_agent_tools, build_tool_docs
 from src.ariadne.tools.tool_wrapper import wrap_tools_with_error_handling
 from src.ariadne.infrastructure.container import DependencyRegistry
 
 logger = logging.getLogger(__name__)
+
 
 class QMAgent(BaseAgent):
     """
@@ -19,8 +19,10 @@ class QMAgent(BaseAgent):
         try:
             self.ticket_tools = ticket_tools or DependencyRegistry.get_work_item_tools()
             self.file_tools = file_tools or DependencyRegistry.get_file_tools()
-            self.agent_run_tools = agent_run_tools or DependencyRegistry.get_agent_run_tools()
-            
+            self.agent_run_tools = (
+                agent_run_tools or DependencyRegistry.get_agent_run_tools()
+            )
+
         except Exception as e:
             logger.error(f"Failed to initialize tools: {e}")
             raise
@@ -29,7 +31,7 @@ class QMAgent(BaseAgent):
             "QM",
             [self.agent_run_tools, self.ticket_tools, self.file_tools],
         )
-        self.tools = wrap_tools_with_error_handling(raw_tools)
+        self.tools = wrap_tools_with_error_handling(raw_tools, agent_name="QM")
 
         self.tool_docs = build_tool_docs(raw_tools)
 
@@ -45,19 +47,18 @@ class QMAgent(BaseAgent):
    - Are there any unanswered questions, "TBD"s, or open points in the 'Open Questions / Missing Context' section?
 3. **Approval vs Rejection:**
    - If there are **NO** open questions and the artifact is complete:
-     - Use `approve_gate` for the specific gate mentioned in your CURRENT MISSION instructions.
-     - Move the ticket status to the 'Success Criteria' state mentioned in your CURRENT MISSION instructions.
-     - Post a comment confirming your approval.
+     - Return `SUCCESS` with an `Approved` `gate_decision` for the gate named in the current mission.
+     - Summarize the evidence supporting approval in the completion details.
    - If there **ARE** open questions, "TBD"s, or the document is incomplete:
-     - DO NOT approve the gate.
-     - Move the ticket status to `Blocked`.
-     - Post a comment explicitly listing the open questions and tagging the responsible party for clarification.
+     - Return `FAILED` with a `Rejected` `gate_decision`.
+     - List every open question or defect in `blockers`; the coordinator records the blocked state and comment.
 
 {self._completion_protocol()}
 
 ### Available Tools:
 {self.tool_docs}
 """
+
 
 if __name__ == "__main__":
     agent = QMAgent()

@@ -20,6 +20,7 @@ class ToolPolicy(BaseModel):
     checks: list[PolicyCheck] = Field(default_factory=list)
     field_requirements: list[dict[str, Any]] = Field(default_factory=list)
     return_direct: bool = False
+    coordinator_only: bool = False
 
 
 class AgentPolicy(BaseModel):
@@ -41,6 +42,13 @@ class WorkflowStatePolicy(BaseModel):
 
     owner: str | None = None
     allowed_tools: dict[str, WorkflowToolPolicy] = Field(default_factory=dict)
+    next_state: str | None = None
+    required_artifact_pattern: str | None = None
+    gate_to_update: str | None = None
+    entry_required_artifact_patterns: list[str] = Field(default_factory=list)
+    entry_required_gates: list[str] = Field(default_factory=list)
+    requires_clean_worktree: bool = False
+    requires_verification: bool = False
 
 
 class AgentToolPolicy(BaseModel):

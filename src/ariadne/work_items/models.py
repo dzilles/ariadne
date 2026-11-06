@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from enum import Enum
 from typing import Any, List, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class WorkItemType(str, Enum):
@@ -22,10 +22,12 @@ class WorkItemStatus(str, Enum):
     DONE = "Done"
     BLOCKED = "Blocked"
 
+
 class GateStatus(str, Enum):
     PENDING = "Pending"
     APPROVED = "Approved"
     REJECTED = "Rejected"
+
 
 class ArtifactLink(BaseModel):
     id: str = ""
@@ -35,6 +37,7 @@ class ArtifactLink(BaseModel):
     agent_run_id: str = ""
     created_at: str = ""
     metadata: dict[str, Any] = Field(default_factory=dict)
+
 
 class Comment(BaseModel):
     id: str
@@ -56,6 +59,13 @@ class AgentRunStatus(str, Enum):
     SUCCESS = "SUCCESS"
     FAILED = "FAILED"
     CANCELLED = "CANCELLED"
+
+
+class WorkItemRelationshipType(str, Enum):
+    PARENT = "PARENT"
+    DEPENDS_ON = "DEPENDS_ON"
+    BLOCKS = "BLOCKS"
+    RELATED = "RELATED"
 
 
 class AgentCompletionStatus(str, Enum):
@@ -144,6 +154,41 @@ class AgentRunDiagnostics(BaseModel):
     raw_response_truncated: bool = False
 
 
+class AgentRunFinalization(BaseModel):
+    """All durable changes applied when one delegated run terminates."""
+
+    run_status: AgentRunStatus
+    completion: AgentCompletion
+    evidence: dict[str, Any] = Field(default_factory=dict)
+    exit_status: str = ""
+    raw_response: str = ""
+    diagnostics: dict[str, Any] = Field(default_factory=dict)
+    next_status: str = ""
+    resumable_status: str = ""
+    blocked_reason: str = ""
+    commit_hashes: list[str] = Field(default_factory=list)
+    handoff_context: str = ""
+    handoff_metadata: dict[str, Any] = Field(default_factory=dict)
+    comment: str = ""
+
+    @model_validator(mode="after")
+    def validate_terminal_status(self) -> "AgentRunFinalization":
+        if self.run_status == AgentRunStatus.RUNNING:
+            raise ValueError("Agent-run finalization requires a terminal run status.")
+
+        expected_completion_status = (
+            AgentCompletionStatus.SUCCESS
+            if self.run_status == AgentRunStatus.SUCCESS
+            else AgentCompletionStatus.FAILED
+        )
+        if self.completion.status != expected_completion_status:
+            raise ValueError(
+                f"Run status {self.run_status.value} requires completion status "
+                f"{expected_completion_status.value}."
+            )
+        return self
+
+
 class AgentRun(BaseModel):
     id: str
     work_item_id: str
@@ -171,6 +216,24 @@ class ContextEntry(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class WorkItemRelationship(BaseModel):
+    id: str
+    source_work_item_id: str
+    target_work_item_id: str
+    relationship_type: WorkItemRelationshipType
+    created_at: str = ""
+
+
+class WorkItemStatusHistory(BaseModel):
+    id: str
+    work_item_id: str
+    from_status: str = ""
+    to_status: str
+    reason: str = ""
+    agent_run_id: str = ""
+    created_at: str = ""
+
+
 class WorkItem(BaseModel):
     id: str
     title: str
@@ -189,12 +252,14 @@ class WorkItem(BaseModel):
     feature_branch: str = ""
     base_commit: str = ""
     merge_request_id: str = ""
-    
+    blocked_reason: str = ""
+    resumable_status: str = ""
+
     # Gate Statuses (Abstracted from custom fields)
     gate_analysis_status: GateStatus = GateStatus.PENDING
     gate_design_status: GateStatus = GateStatus.PENDING
     gate_test_status: GateStatus = GateStatus.PENDING
-    
+
     # Artifacts
     artifacts: List[ArtifactLink] = Field(default_factory=list)
 
@@ -207,7 +272,9 @@ class WorkItemStore(ABC):
     """
 
     @abstractmethod
-    def create_work_item(self, title: str, description: str, type: WorkItemType, priority: str) -> str:
+    def create_work_item(
+        self, title: str, description: str, type: WorkItemType, priority: str
+    ) -> str:
         """Create a new work item and return its ID."""
         pass
 
@@ -304,7 +371,9 @@ class WorkItemStore(ABC):
         pass
 
     @abstractmethod
-    def list_context_entries(self, work_item_id: str, limit: int | None = None) -> List[ContextEntry]:
+    def list_context_entries(
+        self, work_item_id: str, limit: int | None = None
+    ) -> List[ContextEntry]:
         """List structured context entries for a work item."""
         pass
 
@@ -330,6 +399,20 @@ class WorkItemStore(ABC):
         diagnostics: dict[str, Any] | None = None,
     ) -> None:
         """Mark an agent run complete and store completion/evidence payloads."""
+        pass
+
+    @abstractmethod
+    def finalize_agent_run(
+        self,
+        agent_run_id: str,
+        finalization: AgentRunFinalization,
+    ) -> None:
+        """Atomically finalize an agent run and all resulting work-item changes."""
+        pass
+
+    @abstractmethod
+    def get_running_agent_run(self, work_item_id: str) -> AgentRun | None:
+        """Return the currently running agent run for a work item, if any."""
         pass
 
     @abstractmethod
@@ -367,11 +450,36 @@ class WorkItemStore(ABC):
         pass
 
     @abstractmethod
+    def add_work_item_relationship(
+        self,
+        source_work_item_id: str,
+        target_work_item_id: str,
+        relationship_type: WorkItemRelationshipType,
+    ) -> str:
+        """Create a typed relationship between two work items."""
+        pass
+
+    @abstractmethod
+    def list_work_item_relationships(
+        self,
+        work_item_id: str,
+    ) -> List[WorkItemRelationship]:
+        """List relationships where the work item is source or target."""
+        pass
+
+    @abstractmethod
+    def list_status_history(self, work_item_id: str) -> List[WorkItemStatusHistory]:
+        """List durable workflow status transitions for a work item."""
+        pass
+
+    @abstractmethod
     def list_work_items(self) -> List[WorkItem]:
         """List all work items in the system."""
         pass
 
-    def create_ticket(self, title: str, description: str, type: WorkItemType, priority: str) -> str:
+    def create_ticket(
+        self, title: str, description: str, type: WorkItemType, priority: str
+    ) -> str:
         """Backward-compatible alias for create_work_item."""
         return self.create_work_item(title, description, type, priority)
 

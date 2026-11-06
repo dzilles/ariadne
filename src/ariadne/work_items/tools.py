@@ -1,4 +1,10 @@
-from src.ariadne.work_items.models import AgentRunStatus, GateStatus, WorkItemStatus, WorkItemStore
+from src.ariadne.work_items.models import (
+    AgentRunFinalization,
+    AgentRunStatus,
+    GateStatus,
+    WorkItemStatus,
+    WorkItemStore,
+)
 from src.ariadne.workflows.enforcement import jit_vmodel_guard
 from src.ariadne.runtime.context import (
     get_active_work_item_id,
@@ -51,7 +57,7 @@ class WorkItemTools:
                 context_entries = self.system.list_context_entries(work_item_id)
             except Exception:
                 context_entries = []
-            
+
             # Format as readable string for LLM
             lines = [
                 f"ID: {work_item.id}",
@@ -59,6 +65,8 @@ class WorkItemTools:
                 f"Status: {work_item.status}",
                 f"Type: {work_item.type.value}",
                 f"Priority: {work_item.priority}",
+                f"Blocked Reason: {work_item.blocked_reason or 'None'}",
+                f"Resumable Status: {work_item.resumable_status or 'None'}",
                 f"Created At: {work_item.created_at}",
                 f"Updated At: {work_item.updated_at}",
                 f"Relevant Commits: {', '.join(work_item.commit_hashes) if work_item.commit_hashes else 'None'}",
@@ -74,7 +82,11 @@ class WorkItemTools:
 
             if context_entries:
                 for entry in context_entries[-10:]:
-                    source = f" agent run #{entry.agent_run_id}" if entry.agent_run_id else ""
+                    source = (
+                        f" agent run #{entry.agent_run_id}"
+                        if entry.agent_run_id
+                        else ""
+                    )
                     lines.append(
                         f"- [{entry.created_at}] {entry.author} ({entry.kind}{source}): {entry.content}"
                     )
@@ -87,7 +99,9 @@ class WorkItemTools:
 
             if work_item.tool_logs:
                 for entry in work_item.tool_logs:
-                    lines.append(f"- [{entry.timestamp}] {entry.tool_name} ({entry.status})")
+                    lines.append(
+                        f"- [{entry.timestamp}] {entry.tool_name} ({entry.status})"
+                    )
                     if entry.result:
                         lines.append(f"  Result: {entry.result[:200]}")
             else:
@@ -107,19 +121,17 @@ class WorkItemTools:
             else:
                 lines.append("No agent runs recorded.")
 
-            lines.extend([
-                "\n--- Comments ---"
-            ])
-            
+            lines.extend(["\n--- Comments ---"])
+
             for c in work_item.comments:
                 lines.append(f"- [{c.author}]: {c.text}")
-                
+
             lines.append("\n--- Artifacts ---")
             for a in work_item.artifacts:
                 suffix = f" [{a.type}]" if a.type and a.type != "link" else ""
                 source = f" (agent run #{a.agent_run_id})" if a.agent_run_id else ""
                 lines.append(f"- {a.title}{suffix}: {a.url}{source}")
-                
+
             return "\n".join(lines)
         except Exception as e:
             return f"Error fetching work item: {e}"
@@ -215,7 +227,7 @@ class WorkItemTools:
             return f"Success: {gate} gate REJECTED for {work_item_id}"
         except Exception as e:
             return f"Error rejecting gate: {e}"
-    
+
     @jit_vmodel_guard
     def add_link(
         self,
@@ -262,7 +274,9 @@ class WorkItemTools:
         """Remove a comment from a work item by comment ID."""
         try:
             self.system.remove_comment(work_item_id, comment_id)
-            return f"Success: Removed comment {comment_id} from work item {work_item_id}"
+            return (
+                f"Success: Removed comment {comment_id} from work item {work_item_id}"
+            )
         except Exception as e:
             return f"Error removing comment: {e}"
 
@@ -351,19 +365,31 @@ class WorkItemTools:
             )
             if selected_artifacts:
                 for artifact in selected_artifacts:
-                    type_label = f" [{artifact.type}]" if artifact.type and artifact.type != "link" else ""
-                    source = f" from agent run #{artifact.agent_run_id}" if artifact.agent_run_id else ""
-                    lines.append(f"- {artifact.title}{type_label}: {artifact.url}{source}")
+                    type_label = (
+                        f" [{artifact.type}]"
+                        if artifact.type and artifact.type != "link"
+                        else ""
+                    )
+                    source = (
+                        f" from agent run #{artifact.agent_run_id}"
+                        if artifact.agent_run_id
+                        else ""
+                    )
+                    lines.append(
+                        f"- {artifact.title}{type_label}: {artifact.url}{source}"
+                    )
                 omitted = len(work_item.artifacts) - len(selected_artifacts)
                 if omitted > 0:
                     lines.append(f"... omitted {omitted} less relevant artifact(s)")
             else:
                 lines.append("No artifacts recorded.")
 
-            lines.extend([
-                "",
-                "Recent context:",
-            ])
+            lines.extend(
+                [
+                    "",
+                    "Recent context:",
+                ]
+            )
 
             recent_entries = self._select_context_entries(
                 context_entries,
@@ -385,8 +411,12 @@ class WorkItemTools:
             recent_runs = agent_runs[-max_entries:]
             if recent_runs:
                 for run in recent_runs:
-                    summary = run.completion_payload.get("summary") or "No summary recorded."
-                    lines.append(f"- #{run.id} {run.agent_name} [{run.status.value}]: {summary}")
+                    summary = (
+                        run.completion_payload.get("summary") or "No summary recorded."
+                    )
+                    lines.append(
+                        f"- #{run.id} {run.agent_name} [{run.status.value}]: {summary}"
+                    )
             else:
                 lines.append("No agent runs recorded.")
 
@@ -448,7 +478,9 @@ class WorkItemTools:
         except (TypeError, ValueError):
             return 0
 
-    def start_agent_run(self, work_item_id: str, agent_name: str, task_description: str) -> str:
+    def start_agent_run(
+        self, work_item_id: str, agent_name: str, task_description: str
+    ) -> str:
         """Record that an agent run has started for this work item."""
         try:
             agent_run_id = self.system.start_agent_run(
@@ -492,6 +524,18 @@ class WorkItemTools:
         except Exception as e:
             return f"Error finishing agent run: {e}"
 
+    def finalize_agent_run(
+        self,
+        agent_run_id: str,
+        finalization: AgentRunFinalization,
+    ) -> str:
+        """Atomically finalize a delegated run and its work-item outcome."""
+        try:
+            self.system.finalize_agent_run(agent_run_id, finalization)
+            return f"Success: Finalized agent run {agent_run_id}"
+        except Exception as e:
+            return f"Error finalizing agent run: {e}"
+
     @jit_vmodel_guard
     def update_git_metadata(
         self,
@@ -513,7 +557,7 @@ class WorkItemTools:
             return f"Success: Updated git metadata for work item {work_item_id}"
         except Exception as e:
             return f"Error updating git metadata: {e}"
-            
+
     def get_tool_descriptions(self, include_context_writer: bool = False) -> str:
         allowed_statuses = ", ".join([f"'{s.value}'" for s in WorkItemStatus])
         descriptions = f"""

@@ -1,11 +1,11 @@
 import logging
 from src.ariadne.agents.base_agent import BaseAgent
-from src.ariadne.tools.file_tools import FileAgentTools
 from src.ariadne.policies.registry import build_agent_tools, build_tool_docs
 from src.ariadne.tools.tool_wrapper import wrap_tools_with_error_handling
 from src.ariadne.infrastructure.container import DependencyRegistry
 
 logger = logging.getLogger(__name__)
+
 
 class QualityAssuranceAgent(BaseAgent):
     """
@@ -18,21 +18,18 @@ class QualityAssuranceAgent(BaseAgent):
         try:
             self.ticket_tools = ticket_tools or DependencyRegistry.get_work_item_tools()
             self.file_tools = file_tools or DependencyRegistry.get_file_tools()
-            self.agent_run_tools = agent_run_tools or DependencyRegistry.get_agent_run_tools()
+            self.agent_run_tools = (
+                agent_run_tools or DependencyRegistry.get_agent_run_tools()
+            )
         except Exception as e:
             logger.error(f"Failed to initialize tools: {e}")
             raise
-
-        # Map to expected tool names
-        self.get_ticket_details = self.ticket_tools.get_work_item
-        self.update_ticket = self.ticket_tools.update_status
-        self.add_comment = self.ticket_tools.post_comment
 
         raw_tools = build_agent_tools(
             "QA",
             [self.agent_run_tools, self.ticket_tools, self.file_tools],
         )
-        self.tools = wrap_tools_with_error_handling(raw_tools)
+        self.tools = wrap_tools_with_error_handling(raw_tools, agent_name="QA")
 
         self.tool_docs = build_tool_docs(raw_tools)
 
@@ -47,6 +44,7 @@ Your goal is to ensure the software meets architectural guidelines and coding st
 2.  **Verify Standards:** Ensure coding conventions (PEP 8, typing) are followed.
 3.  **Approve/Reject:** Provide feedback on code submissions.
 4.  **Process Check:** ensure that the development process (V-Model) steps have been followed in the project management system.
+5.  **Verification:** Return each review or process check in `verification`. Use `FAILED` and list blockers when any required check does not pass. The coordinator owns the final status transition.
 
 {self._completion_protocol()}
 

@@ -50,21 +50,45 @@ def evaluate_tool_call(
     if not tool:
         return PolicyDecision.deny(f"Tool '{tool_name}' is not defined in policy.")
 
+    from src.ariadne.runtime.context import get_active_delegation
+
+    delegation = get_active_delegation()
+    if delegation and agent_name and delegation.agent_name != agent_name:
+        return PolicyDecision.deny(
+            f"ACTION BLOCKED: Delegation run #{delegation.agent_run_id} belongs to "
+            f"'{delegation.agent_name}', not '{agent_name}'."
+        )
+    if delegation and not agent_name:
+        agent_name = delegation.agent_name
+
     if agent_name:
         agent = policy.agents.get(agent_name)
         if not agent:
-            return PolicyDecision.deny(f"Agent '{agent_name}' is not defined in policy.")
+            return PolicyDecision.deny(
+                f"Agent '{agent_name}' is not defined in policy."
+            )
         if tool_name not in agent.tools:
             return PolicyDecision.deny(
                 f"Agent '{agent_name}' is not allowed to use '{tool_name}'."
             )
+
+    if tool.coordinator_only and agent_name not in {None, "Orchestrator"}:
+        return PolicyDecision.deny(
+            f"ACTION BLOCKED: '{tool_name}' is coordinator-owned and cannot be "
+            f"used by specialist '{agent_name}'."
+        )
 
     decision = PolicyDecision()
     if check_user_permission and "user_permission" in tool.checks:
         decision = decision.with_user_permission()
 
     if check_work_item and _has_work_item_checks(tool.checks):
-        work_item_decision = _evaluate_work_item_checks(tool_name, args, tool)
+        work_item_decision = _evaluate_work_item_checks(
+            tool_name,
+            args,
+            tool,
+            agent_name=agent_name,
+        )
         if not work_item_decision.allowed:
             return work_item_decision
 
@@ -78,14 +102,37 @@ def _has_work_item_checks(checks: list[str]) -> bool:
     )
 
 
-def _evaluate_work_item_checks(tool_name: str, args: dict[str, Any], tool) -> PolicyDecision:
-    from src.ariadne.runtime.context import get_active_work_item_id
+def _evaluate_work_item_checks(
+    tool_name: str,
+    args: dict[str, Any],
+    tool,
+    *,
+    agent_name: str | None,
+) -> PolicyDecision:
+    from src.ariadne.runtime.context import (
+        get_active_delegation,
+        get_active_work_item_id,
+    )
 
     work_item_id = get_active_work_item_id()
     if not work_item_id:
         return PolicyDecision.deny(
             "⛔ BLOCK: You cannot execute mutating tools without an active work item context. "
             "The Orchestrator must delegate a work item to you."
+        )
+
+    delegation = get_active_delegation()
+    if delegation and delegation.work_item_id != str(work_item_id):
+        return PolicyDecision.deny(
+            "ACTION BLOCKED: Active work-item context does not match the "
+            f"delegation ticket #{delegation.work_item_id}."
+        )
+
+    requested_work_item_id = _work_item_id_arg(tool_name, args)
+    if requested_work_item_id and str(requested_work_item_id) != str(work_item_id):
+        return PolicyDecision.deny(
+            f"ACTION BLOCKED: Tool '{tool_name}' targeted work item "
+            f"#{requested_work_item_id}, but delegation is scoped to #{work_item_id}."
         )
 
     try:
@@ -107,6 +154,18 @@ def _evaluate_work_item_checks(tool_name: str, args: dict[str, Any], tool) -> Po
             f"System Error: No workflow policy defined for status '{status}'."
         )
 
+    if agent_name and agent_name != "Orchestrator" and workflow.owner != agent_name:
+        return PolicyDecision.deny(
+            f"ACTION BLOCKED: Work item #{work_item_id} in '{status}' is owned by "
+            f"'{workflow.owner}', not '{agent_name}'."
+        )
+
+    if delegation and status != delegation.entry_status:
+        return PolicyDecision.deny(
+            f"ACTION BLOCKED: Work item #{work_item_id} changed from delegation "
+            f"entry status '{delegation.entry_status}' to '{status}'."
+        )
+
     workflow_tool = workflow.allowed_tools.get(tool_name)
     if "work_item_state" in tool.checks and workflow_tool is None:
         return PolicyDecision.deny(
@@ -116,7 +175,9 @@ def _evaluate_work_item_checks(tool_name: str, args: dict[str, Any], tool) -> Po
         )
 
     if "work_item_transition" in tool.checks:
-        transition_decision = _evaluate_transition(tool_name, args, workflow_tool, status)
+        transition_decision = _evaluate_transition(
+            tool_name, args, workflow_tool, status
+        )
         if not transition_decision.allowed:
             return transition_decision
 
@@ -129,6 +190,24 @@ def _evaluate_work_item_checks(tool_name: str, args: dict[str, Any], tool) -> Po
             return field_decision
 
     return PolicyDecision()
+
+
+_WORK_ITEM_ID_TOOLS = {
+    "update_status",
+    "post_comment",
+    "approve_gate",
+    "reject_gate",
+    "add_link",
+    "add_commit_hash",
+    "append_shared_context",
+    "update_git_metadata",
+}
+
+
+def _work_item_id_arg(tool_name: str, args: dict[str, Any]) -> Any:
+    if tool_name not in _WORK_ITEM_ID_TOOLS:
+        return None
+    return _arg_value(args, "work_item_id", index=0)
 
 
 def _get_work_item(work_item_id: str):
@@ -171,7 +250,9 @@ def _evaluate_transition(
     return PolicyDecision()
 
 
-def _evaluate_field_requirements(work_item, requirements: list[dict[str, Any]]) -> PolicyDecision:
+def _evaluate_field_requirements(
+    work_item, requirements: list[dict[str, Any]]
+) -> PolicyDecision:
     for requirement in requirements:
         field_name = requirement.get("field")
         if not field_name:

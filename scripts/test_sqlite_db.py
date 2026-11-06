@@ -1,77 +1,69 @@
-import sys
-import os
-from pprint import pprint
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
-# Add project root to path
-sys.path.append(os.getcwd())
-
-from src.ariadne.infrastructure.container import DependencyRegistry
+from src.ariadne.work_items.adapters.sqlite import SQLiteWorkItemStore
 from src.ariadne.work_items.models import TicketType, TicketStatus, GateStatus
-from src.ariadne.workflows.context import set_active_ticket_id
-from src.ariadne.tools.tool_wrapper import with_error_handling
+from src.ariadne.work_items.tools import WorkItemTools
 
-def test_sqlite_system():
+
+def test_sqlite_system(tmp_path):
     print("🧪 Testing SQLite Ticket System...")
-    
-    # Force SQLite for test
-    DependencyRegistry.TICKET_SYSTEM_TYPE = "sqlite"
-    
-    # Get tools
-    tools = DependencyRegistry.get_work_item_tools()
-    
+
+    store = SQLiteWorkItemStore(str(tmp_path / "ariadne.db"))
+    tools = WorkItemTools(store)
+
     # 1. Create a ticket
     print("\n1. Creating ticket...")
-    t_id = tools.system.create_ticket(
+    t_id = store.create_ticket(
         title="Test SQLite Ticket",
         description="This is a test ticket for the local database implementation.",
         type=TicketType.FEATURE,
-        priority="high"
+        priority="high",
     )
     print(f"Created Ticket ID: {t_id}")
-    
-    # IMPORTANT: Set active ticket ID for the JIT Guard
-    set_active_ticket_id(t_id)
-    
+
     # 2. Add a comment
     print("\n2. Adding comment...")
-    res = tools.post_comment(t_id, "This is a test comment.")
-    print(res)
-    
+    store.post_comment(t_id, "This is a test comment.")
+
     # 3. Update status
     print("\n3. Updating status...")
     # Transition: Backlog -> Ready for Analysis
-    res = tools.update_status(t_id, TicketStatus.READY_FOR_ANALYSIS.value)
-    print(res)
-    
+    store.update_status(t_id, TicketStatus.READY_FOR_ANALYSIS)
+
     # 4. Approve gate
     print("\n4. Approving analysis gate...")
-    res = tools.approve_gate(t_id, "analysis")
-    print(res)
+    store.set_gate_status(t_id, "analysis", GateStatus.APPROVED)
 
     # 5. Add relevant commit and shared context
     print("\n5. Adding commit hash and shared context...")
-    res = tools.add_commit_hash(t_id, "abc123")
-    print(res)
-    res = tools.update_git_metadata(
+    store.add_commit_hash(t_id, "abc123")
+    store.update_git_metadata(
         t_id,
         target_branch="main",
         feature_branch="feature/test-sqlite-ticket",
         base_commit="base123",
         merge_request_id="MR-1",
     )
-    print(res)
-    res = tools.append_shared_context(t_id, "Tester", "The requirement has enough detail for architecture.")
-    print(res)
+    store.append_shared_context(
+        t_id,
+        "Tester",
+        "The requirement has enough detail for architecture.",
+    )
 
-    # 6. Verify configured automatic tool logging via wrapper
-    print("\n6. Verifying automatic tool logging...")
-    logged_update_status = with_error_handling(tools.update_status)
-    res = logged_update_status(work_item_id=t_id, status=TicketStatus.READY_FOR_ANALYSIS.value)
-    print(res)
-    
+    # 6. Verify durable tool logging at the store boundary.
+    print("\n6. Verifying tool logging...")
+    store.add_tool_log(
+        work_item_id=t_id,
+        tool_name="update_status",
+        status="success",
+        args={"status": TicketStatus.READY_FOR_ANALYSIS.value},
+        result="status persisted",
+    )
+
     # 7. Get ticket details
     print("\n7. Fetching ticket details...")
-    item = tools.system.get_work_item(t_id)
+    item = store.get_work_item(t_id)
     assert item.created_at
     assert item.updated_at
     assert item.commit_hashes == ["abc123"]
@@ -85,15 +77,8 @@ def test_sqlite_system():
     ticket_details = tools.get_work_item(t_id)
     print(ticket_details)
 
+
 if __name__ == "__main__":
-    # Remove existing db if exists for clean test
-    if os.path.exists("ariadne_tickets.db"):
-        os.remove("ariadne_tickets.db")
-    
-    try:
-        test_sqlite_system()
-        print("\n✅ SQLite Ticket System test PASSED!")
-    except Exception as e:
-        print(f"\n❌ Test FAILED: {e}")
-        import traceback
-        traceback.print_exc()
+    with TemporaryDirectory() as temp_dir:
+        test_sqlite_system(Path(temp_dir))
+    print("\n✅ SQLite Ticket System test PASSED!")

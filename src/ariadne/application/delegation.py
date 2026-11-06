@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import fnmatch
 import inspect
 import logging
 import subprocess
@@ -12,13 +13,20 @@ from typing import Any
 
 from src.ariadne.config.settings import settings
 from src.ariadne.runtime import run_manager
-from src.ariadne.runtime.context import set_active_work_item_id
+from src.ariadne.runtime.context import (
+    DelegationContext,
+    delegation_scope,
+    set_active_work_item_id,
+)
+from src.ariadne.policies.loader import get_policy
 from src.ariadne.tools.agent_run_tools import AgentRunTools
 from src.ariadne.work_items.models import (
     AgentCompletion,
+    AgentRunFinalization,
     AgentRunDiagnostics,
     AgentRunStatus,
-    WorkItemStatus,
+    GateStatus,
+    VerificationStatus,
 )
 
 logger = logging.getLogger(__name__)
@@ -32,15 +40,6 @@ SPECIALIST_AGENT_NAMES = (
     "Tester",
     "QA",
 )
-
-_ENTRY_STATUS_BY_AGENT = {
-    "Requirements": WorkItemStatus.READY_FOR_ANALYSIS,
-    "QM": WorkItemStatus.READY_FOR_REVIEW,
-    "Architect": WorkItemStatus.READY_FOR_DESIGN,
-    "Developer": WorkItemStatus.READY_FOR_DEVELOPMENT,
-    "Tester": WorkItemStatus.READY_FOR_TESTING,
-    "QA": WorkItemStatus.READY_FOR_QA,
-}
 
 
 class DelegationRejectedError(RuntimeError):
@@ -113,10 +112,10 @@ class DelegationService:
                 f"Unknown specialist agent '{agent_name}'. Available: {available}"
             )
 
-        clean_check = self._check_clean_git_status()
-        if clean_check:
-            raise DelegationRejectedError(clean_check)
-
+        work_item, workflow = self._validate_entry(
+            agent_name,
+            work_item_id,
+        )
         set_active_work_item_id(work_item_id)
         agent_run_id = self.ticket_tools.start_agent_run(
             work_item_id,
@@ -131,27 +130,33 @@ class DelegationService:
         diagnostics: dict[str, Any] = {}
         execution_error = ""
         completion_tools = AgentRunTools()
+        runtime_context = DelegationContext(
+            work_item_id=str(work_item_id),
+            agent_name=agent_name,
+            agent_run_id=str(agent_run_id),
+            entry_status=work_item.status,
+        )
 
         try:
-            self._prepare_work_item_for_agent(work_item_id, agent_name)
-            agent = self._create_specialist(
-                agent_factories[agent_name],
-                completion_tools,
-            )
-            response = str(
-                agent.chat(
-                    self._build_delegation_prompt(
-                        agent_name,
-                        work_item_id,
-                        task_description,
-                    )
+            with delegation_scope(runtime_context):
+                agent = self._create_specialist(
+                    agent_factories[agent_name],
+                    completion_tools,
                 )
-                or ""
-            )
-            completion, diagnostics = self._resolve_completion(
-                agent_name,
-                completion_tools,
-            )
+                response = str(
+                    agent.chat(
+                        self._build_delegation_prompt(
+                            agent_name,
+                            work_item_id,
+                            task_description,
+                        )
+                    )
+                    or ""
+                )
+                completion, diagnostics = self._resolve_completion(
+                    agent_name,
+                    completion_tools,
+                )
         except Exception as error:
             execution_error = str(error)
             completion = self._exception_completion(agent_name, error)
@@ -168,7 +173,9 @@ class DelegationService:
             completion = AgentCompletion(
                 status="FAILED",
                 summary=f"Delegation to {agent_name} was cancelled.",
-                details="The specialist run was cancelled before a result could be accepted.",
+                details=(
+                    "The specialist run was cancelled before a result could be accepted."
+                ),
                 blockers=["Review partial work and Git evidence before retrying."],
             )
             diagnostics = AgentRunDiagnostics(
@@ -184,16 +191,35 @@ class DelegationService:
             diagnostics = dict(diagnostics)
             diagnostics["raw_response_truncated"] = True
 
-        self._finalize_agent_outcome(
-            work_item_id=work_item_id,
+        if run_status == AgentRunStatus.SUCCESS:
+            completion, diagnostics = self._validate_success_postconditions(
+                agent_name,
+                work_item,
+                workflow,
+                completion,
+                evidence,
+                diagnostics,
+            )
+            run_status = AgentRunStatus(completion.status.value)
+
+        finalization = self._build_finalization(
             agent_name=agent_name,
-            agent_run_id=str(agent_run_id),
+            work_item=work_item,
+            workflow=workflow,
             run_status=run_status,
-            raw_response=raw_response,
             completion=completion,
             evidence=evidence,
+            raw_response=raw_response,
             diagnostics=diagnostics,
+            starting_commit=starting_commit,
         )
+        finish_result = self.ticket_tools.finalize_agent_run(
+            str(agent_run_id),
+            finalization,
+        )
+        if str(finish_result).startswith("Error"):
+            raise RuntimeError(str(finish_result))
+
         return DelegationResult(
             work_item_id=work_item_id,
             agent_name=agent_name,
@@ -205,6 +231,217 @@ class DelegationService:
             raw_response=raw_response,
             execution_error=execution_error,
         )
+
+    def _validate_entry(self, agent_name: str, work_item_id: str):
+        store = self.ticket_tools.system
+        try:
+            work_item = store.get_work_item(work_item_id)
+        except Exception as error:
+            raise DelegationRejectedError(str(error)) from error
+
+        workflow = get_policy().workflow.get(work_item.status)
+        if not workflow:
+            raise DelegationRejectedError(
+                f"No workflow policy is defined for status '{work_item.status}'."
+            )
+        if workflow.owner != agent_name:
+            raise DelegationRejectedError(
+                f"Cannot delegate work item #{work_item_id} in '{work_item.status}' "
+                f"to '{agent_name}'; this phase is owned by '{workflow.owner}'."
+            )
+
+        running = store.get_running_agent_run(work_item_id)
+        if running:
+            raise DelegationRejectedError(
+                f"Work item #{work_item_id} already has RUNNING agent run "
+                f"#{running.id} ({running.agent_name})."
+            )
+
+        blockers = store.get_blockers(work_item_id)
+        if blockers:
+            raise DelegationRejectedError(
+                f"Work item #{work_item_id} is blocked by unresolved work items: "
+                f"{', '.join(f'#{blocker}' for blocker in blockers)}."
+            )
+
+        missing_artifacts = [
+            pattern
+            for pattern in workflow.entry_required_artifact_patterns
+            if not self._has_artifact(work_item.artifacts, pattern)
+        ]
+        if missing_artifacts:
+            raise DelegationRejectedError(
+                f"Work item #{work_item_id} is missing required entry artifacts: "
+                f"{', '.join(missing_artifacts)}."
+            )
+
+        missing_gates = [
+            gate
+            for gate in workflow.entry_required_gates
+            if self._gate_status(work_item, gate) != GateStatus.APPROVED
+        ]
+        if missing_gates:
+            raise DelegationRejectedError(
+                f"Work item #{work_item_id} requires approved entry gates: "
+                f"{', '.join(missing_gates)}."
+            )
+
+        if workflow.requires_clean_worktree:
+            clean_check = self._check_clean_git_status()
+            if clean_check:
+                raise DelegationRejectedError(clean_check)
+
+        return work_item, workflow
+
+    def _validate_success_postconditions(
+        self,
+        agent_name: str,
+        work_item: Any,
+        workflow: Any,
+        completion: AgentCompletion,
+        evidence: dict[str, Any],
+        diagnostics: dict[str, Any],
+    ) -> tuple[AgentCompletion, dict[str, Any]]:
+        errors = []
+        artifacts = [*work_item.artifacts, *completion.artifacts]
+        if workflow.required_artifact_pattern and not self._has_artifact(
+            artifacts, workflow.required_artifact_pattern
+        ):
+            errors.append(
+                "Missing required output artifact matching "
+                f"{workflow.required_artifact_pattern}."
+            )
+
+        if workflow.gate_to_update:
+            gate_decision = completion.gate_decision
+            if (
+                not gate_decision
+                or gate_decision.gate.lower() != workflow.gate_to_update.lower()
+                or gate_decision.decision != GateStatus.APPROVED
+            ):
+                errors.append(
+                    f"Completion must approve the '{workflow.gate_to_update}' gate."
+                )
+
+        failed_verification = [
+            result.name
+            for result in completion.verification
+            if result.status == VerificationStatus.FAILED
+        ]
+        if failed_verification:
+            errors.append(
+                "Verification failed: " + ", ".join(failed_verification) + "."
+            )
+        if workflow.requires_verification and not completion.verification:
+            errors.append("At least one verification result is required.")
+
+        if workflow.requires_clean_worktree and evidence.get("status_short"):
+            errors.append("The final Git worktree is not clean.")
+
+        if not errors:
+            return completion, diagnostics
+
+        failed_payload = completion.model_dump(mode="json", exclude_none=True)
+        failed_payload.update(
+            {
+                "status": "FAILED",
+                "summary": f"{agent_name} success postconditions were not satisfied.",
+                "details": "\n".join(errors),
+                "blockers": errors,
+            }
+        )
+        failed_completion = AgentCompletion.model_validate(failed_payload)
+        postcondition_diagnostics = dict(diagnostics)
+        postcondition_diagnostics.update(
+            AgentRunDiagnostics(
+                failure_kind="postcondition_failure",
+                error_type="CompletionPostconditionError",
+                error_message=" ".join(errors),
+            ).model_dump(mode="json")
+        )
+        return failed_completion, postcondition_diagnostics
+
+    def _build_finalization(
+        self,
+        *,
+        agent_name: str,
+        work_item: Any,
+        workflow: Any,
+        run_status: AgentRunStatus,
+        completion: AgentCompletion,
+        evidence: dict[str, Any],
+        raw_response: str,
+        diagnostics: dict[str, Any],
+        starting_commit: str,
+    ) -> AgentRunFinalization:
+        completion_payload = completion.model_dump(mode="json", exclude_none=True)
+        handoff_context = self._format_handoff_context(
+            agent_name,
+            completion_payload,
+            evidence,
+            run_status=run_status,
+        )
+        handoff_metadata = self._handoff_context_metadata(
+            completion_payload,
+            evidence,
+            run_status=run_status,
+        )
+        latest_commit = str(evidence.get("latest_commit") or "")
+        commit_hashes = []
+        if latest_commit and latest_commit != starting_commit:
+            commit_hashes.append(latest_commit)
+
+        next_status = workflow.next_state or ""
+        if run_status == AgentRunStatus.FAILED:
+            exit_status = "Blocked"
+        elif run_status == AgentRunStatus.CANCELLED:
+            exit_status = work_item.status
+            next_status = ""
+        else:
+            exit_status = next_status
+
+        return AgentRunFinalization(
+            run_status=run_status,
+            completion=completion,
+            evidence=evidence,
+            exit_status=exit_status,
+            raw_response=raw_response,
+            diagnostics=diagnostics,
+            next_status=next_status,
+            resumable_status=work_item.status,
+            blocked_reason=self._blocked_reason(completion)
+            if run_status == AgentRunStatus.FAILED
+            else "",
+            commit_hashes=commit_hashes,
+            handoff_context=handoff_context,
+            handoff_metadata=handoff_metadata,
+            comment=self._failure_comment(completion)
+            if run_status == AgentRunStatus.FAILED
+            else "",
+        )
+
+    def _has_artifact(self, artifacts: list[Any], pattern: str) -> bool:
+        return any(
+            fnmatch.fnmatch(str(getattr(artifact, "url", "")), pattern)
+            for artifact in artifacts
+        )
+
+    def _gate_status(self, work_item: Any, gate: str) -> GateStatus:
+        value = getattr(work_item, f"gate_{gate.lower()}_status", GateStatus.PENDING)
+        return value if isinstance(value, GateStatus) else GateStatus(value)
+
+    def _blocked_reason(self, completion: AgentCompletion) -> str:
+        values = [completion.summary, *completion.blockers]
+        return " | ".join(value for value in values if value).strip()
+
+    def _failure_comment(self, completion: AgentCompletion) -> str:
+        lines = ["Delegated agent failed.", f"Summary: {completion.summary}"]
+        if completion.details:
+            lines.extend(["", "Details:", completion.details])
+        if completion.blockers:
+            lines.extend(["", "Blockers:"])
+            lines.extend(f"- {blocker}" for blocker in completion.blockers)
+        return "\n".join(lines)
 
     def _get_agent_factories(self) -> Mapping[str, Callable[..., Any]]:
         if self._agent_factories is None:
@@ -233,25 +470,6 @@ class DelegationService:
             agent = factory()
         setattr(agent, "_propagate_delegation_errors", True)
         return agent
-
-    def _prepare_work_item_for_agent(self, work_item_id: str, agent_name: str) -> None:
-        target_status = _ENTRY_STATUS_BY_AGENT.get(agent_name)
-        if not target_status:
-            return
-        logger.info(
-            "Delegation service: ensuring work item #%s is in status '%s' for %s.",
-            work_item_id,
-            target_status.value,
-            agent_name,
-        )
-        self.ticket_tools.update_status(work_item_id, target_status.value)
-        self.ticket_tools.post_comment(
-            work_item_id,
-            (
-                f"Ariadne Orchestrator: Delegating task to {agent_name} agent. "
-                f"Moving work item to {target_status.value}."
-            ),
-        )
 
     def _build_delegation_prompt(
         self,
@@ -318,142 +536,6 @@ Do not choose the next agent. The Orchestrator decides workflow routing.
                 "an exception."
             ),
             blockers=["Review the agent-run diagnostics before retrying this phase."],
-        )
-
-    def _finalize_agent_outcome(
-        self,
-        *,
-        work_item_id: str,
-        agent_name: str,
-        agent_run_id: str,
-        run_status: AgentRunStatus,
-        raw_response: str,
-        completion: AgentCompletion,
-        evidence: dict[str, Any],
-        diagnostics: dict[str, Any],
-    ) -> None:
-        completion_payload = completion.model_dump(mode="json", exclude_none=True)
-        finish_result = self.ticket_tools.finish_agent_run(
-            agent_run_id,
-            run_status.value,
-            completion_payload,
-            evidence,
-            exit_status="Blocked" if run_status == AgentRunStatus.FAILED else "",
-            raw_response=raw_response,
-            diagnostics=diagnostics,
-        )
-        if str(finish_result).startswith("Error"):
-            raise RuntimeError(str(finish_result))
-
-        if run_status != AgentRunStatus.CANCELLED:
-            self._apply_agent_run_to_work_item(
-                work_item_id,
-                completion,
-                evidence,
-                agent_run_id=agent_run_id,
-            )
-        self._append_agent_handoff_context(
-            work_item_id,
-            agent_name,
-            completion,
-            evidence,
-            agent_run_id=agent_run_id,
-            run_status=run_status,
-        )
-
-    def _apply_agent_run_to_work_item(
-        self,
-        work_item_id: str,
-        completion: AgentCompletion,
-        evidence: dict[str, Any],
-        *,
-        agent_run_id: str,
-    ) -> None:
-        if completion.status.value == AgentRunStatus.FAILED.value:
-            self._apply_failed_agent_run_to_work_item(work_item_id, completion)
-            return
-
-        starting_commit = evidence.get("starting_commit") or ""
-        latest_commit = evidence.get("latest_commit") or ""
-        if latest_commit and latest_commit != starting_commit:
-            result = self.ticket_tools.add_commit_hash(work_item_id, latest_commit)
-            logger.info(
-                "Commit hash update result for work item #%s: %s", work_item_id, result
-            )
-
-        for artifact in completion.artifacts:
-            metadata = dict(artifact.metadata)
-            if artifact.stable_id:
-                metadata["stable_id"] = artifact.stable_id
-            result = self.ticket_tools.add_link(
-                work_item_id,
-                artifact.title,
-                artifact.url,
-                artifact_type=artifact.type,
-                agent_run_id=agent_run_id,
-                metadata=metadata,
-            )
-            logger.info(
-                "Artifact link update result for work item #%s: %s",
-                work_item_id,
-                result,
-            )
-
-    def _apply_failed_agent_run_to_work_item(
-        self,
-        work_item_id: str,
-        completion: AgentCompletion,
-    ) -> None:
-        status_result = self.ticket_tools.update_status(work_item_id, "Blocked")
-        logger.info(
-            "Failure status update result for work item #%s: %s",
-            work_item_id,
-            status_result,
-        )
-
-        lines = ["Delegated agent failed.", f"Summary: {completion.summary}"]
-        if completion.details:
-            lines.extend(["", "Details:", completion.details])
-        if completion.blockers:
-            lines.extend(["", "Blockers:"])
-            lines.extend(f"- {blocker}" for blocker in completion.blockers)
-
-        comment_result = self.ticket_tools.post_comment(work_item_id, "\n".join(lines))
-        logger.info(
-            "Failure comment result for work item #%s: %s", work_item_id, comment_result
-        )
-
-    def _append_agent_handoff_context(
-        self,
-        work_item_id: str,
-        agent_name: str,
-        completion: AgentCompletion,
-        evidence: dict[str, Any],
-        *,
-        agent_run_id: str,
-        run_status: AgentRunStatus,
-    ) -> None:
-        completion_payload = completion.model_dump(mode="json", exclude_none=True)
-        context = self._format_handoff_context(
-            agent_name,
-            completion_payload,
-            evidence,
-            run_status=run_status,
-        )
-        metadata = self._handoff_context_metadata(
-            completion_payload,
-            evidence,
-            run_status=run_status,
-        )
-        result = self.ticket_tools.append_shared_context(
-            work_item_id,
-            agent_name,
-            context,
-            agent_run_id=agent_run_id,
-            metadata=metadata,
-        )
-        logger.info(
-            "Shared context append result for work item #%s: %s", work_item_id, result
         )
 
     def _format_handoff_context(

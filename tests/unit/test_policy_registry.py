@@ -72,6 +72,22 @@ def test_completion_tool_is_available_to_delegated_agents_only():
         assert completion_policy["return_direct"] is True
 
 
+def test_specialists_cannot_use_coordinator_owned_mutations():
+    coordinator_tools = {
+        tool_name
+        for tool_name, policy in DEFAULT_POLICY["tools"].items()
+        if policy.get("coordinator_only")
+    }
+
+    assert coordinator_tools
+    for agent_name, policy in DEFAULT_POLICY["agents"].items():
+        if agent_name == "Orchestrator":
+            continue
+        assert coordinator_tools.isdisjoint(policy["tools"]), agent_name
+
+    assert "write_file" not in DEFAULT_POLICY["agents"]["QA"]["tools"]
+
+
 def test_older_policy_overrides_keep_required_terminal_tools():
     policy = {
         "agents": {

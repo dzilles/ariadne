@@ -1,6 +1,6 @@
 # Agent Delegation Implementation Plan
 
-Status: In progress; Phase 2 complete
+Status: In progress; Phase 3 complete
 Last updated: 2026-07-15
 
 ## 1. Objective
@@ -51,20 +51,22 @@ The repository already provides:
 - Durable cancellation, malformed-completion, duplicate-return, and exception
   finalization paths.
 - Coordinator routing for specialists selected directly in the UI.
+- Policy-owned phase entry requirements and postcondition validation.
+- Typed work item relationships, blocker queries, and status history.
+- One RUNNING agent run per work item, enforced by SQLite.
+- Atomic success, failure, and cancellation finalization.
+- Runtime delegation identity enforced by agent and workflow-aware tool policy.
 
 Known gaps:
 
-- SQLite stores ticket priority, but `WorkItem` does not expose it.
-- Stable IDs, parent relationships, dependencies, and acceptance criteria are
-  mainly free-form Markdown conventions.
+- Goal and acceptance criteria remain mainly free-form Markdown conventions.
 - `shared_context` duplicates structured context entries.
 - Normal ticket rendering includes unbounded tool logs and comments.
 - Agent-run summaries and handoff context duplicate some information.
-- Tool guards validate work item state but not whether the calling agent owns
-  that state.
-- Specialist prompts and actual tool policies disagree in several places.
-- The complete test suite includes two stale workflow-guard failures even though
-  the unit suite passes.
+- The full role tool matrix is incomplete, especially patch editing, read-only
+  Git inspection, and Tester/QA validation execution.
+- Saved legacy agent contexts may contain older prompt text until prompt-context
+  migration is implemented.
 
 ## 4. Target Execution Flow
 
@@ -192,7 +194,7 @@ the full limit on artifacts, context entries, and agent runs.
 ### Phase 1: Ticket and Handoff Contracts
 
 - [x] Add `priority` to `WorkItem` and its SQLite mapping.
-- [ ] Define typed work item relationship and status-history models.
+- [x] Define typed work item relationship and status-history models.
 - [x] Define versioned `AgentCompletion`, artifact, verification, gate-decision,
       and failure-diagnostic models.
 - [x] Extend `AgentRun` with entry status, exit status, raw response, and
@@ -233,20 +235,20 @@ Acceptance criteria:
 
 ### Phase 3: Clean Entry, Ownership, and Finalization
 
-- [ ] Use workflow policy to resolve the owner for the current status.
-- [ ] Reject delegation when the requested agent does not own the current phase.
-- [ ] Reject entry when required gates, artifacts, relationships, or dependencies
-      are incomplete.
-- [ ] Reject entry when another RUNNING agent run exists for the ticket.
-- [ ] Add a SQLite uniqueness constraint for one RUNNING run per ticket.
-- [ ] Reject technical delegation when the Git worktree is dirty.
-- [ ] Add runtime delegation context containing work item ID, agent name, run ID,
+- [x] Use workflow policy to resolve the owner for the current status.
+- [x] Reject delegation when the requested agent does not own the current phase.
+- [x] Reject entry when required gates, artifacts, or typed dependencies are
+      incomplete.
+- [x] Reject entry when another RUNNING agent run exists for the ticket.
+- [x] Add a SQLite uniqueness constraint for one RUNNING run per ticket.
+- [x] Reject technical delegation when the Git worktree is dirty.
+- [x] Add runtime delegation context containing work item ID, agent name, run ID,
       and entry status.
-- [ ] Make tool policy evaluate both agent identity and workflow state.
-- [ ] Remove specialist ownership of normal status transitions.
-- [ ] Validate success postconditions before advancing the ticket.
-- [ ] Preserve resumable status when blocking a ticket.
-- [ ] Implement atomic SQLite finalization.
+- [x] Make tool policy evaluate both agent identity and workflow state.
+- [x] Remove specialist ownership of normal status transitions.
+- [x] Validate success postconditions before advancing the ticket.
+- [x] Preserve resumable status when blocking a ticket.
+- [x] Implement atomic SQLite finalization.
 
 Success behavior:
 
@@ -283,11 +285,11 @@ Implement missing tools:
 
 Remove or restrict inappropriate tools:
 
-- [ ] Remove `write_file` from QA.
-- [ ] Remove normal status and gate transitions from specialists.
-- [ ] Remove direct artifact, commit, Git metadata, and shared-context mutations
+- [x] Remove `write_file` from QA.
+- [x] Remove normal status and gate transitions from specialists.
+- [x] Remove direct artifact, commit, Git metadata, and shared-context mutations
       from specialists after completion finalization supports them.
-- [ ] Do not expose push behavior unless it is explicitly designed and separately
+- [x] Do not expose push behavior unless it is explicitly designed and separately
       approved.
 - [ ] Guard checkout and other repository-changing tools with delegation context.
 
@@ -311,15 +313,15 @@ resolved callables, and prompt tool documentation.
 - [x] Create one shared specialist completion and tool-discipline fragment.
 - [ ] Ensure dynamic mission instructions are injected by the normal application
       path, not only by legacy scripts.
-- [ ] Make the Orchestrator use workflow policy instead of a hardcoded status map.
-- [ ] Tell specialists not to choose the next agent or status.
+- [x] Make the Orchestrator use workflow policy instead of a hardcoded status map.
+- [x] Tell specialists not to choose the next agent or status.
 - [x] Tell specialists to return semantic data through
       `return_to_orchestrator`.
-- [ ] Remove references to nonexistent tools such as `search_file_content`.
-- [ ] Remove mandatory hidden-reasoning or `<thought>` instructions.
-- [ ] Remove unsupported assumptions about parent tickets until relationship
+- [x] Remove references to nonexistent tools such as `search_file_content`.
+- [x] Remove mandatory hidden-reasoning or `<thought>` instructions.
+- [x] Remove unsupported assumptions about parent tickets until relationship
       tools are available.
-- [ ] Remove direct status, gate, artifact-link, and commit-metadata instructions
+- [x] Remove direct status, gate, artifact-link, and commit-metadata instructions
       from specialists.
 - [ ] Align Developer, Tester, QA, and QM validation instructions with their real
       tool sets.
@@ -347,13 +349,13 @@ All specialist prompts must require:
 
 ### Phase 7: Integration, Migration, and Documentation
 
-- [ ] Add real SQLite integration tests with fake specialist agents.
-- [ ] Cover success, explicit failure, malformed output, exception, cancellation,
+- [x] Add real SQLite integration tests with fake specialist agents.
+- [x] Cover success, explicit failure, malformed output, exception, cancellation,
       duplicate run, wrong-phase entry, dirty Git, missing artifact, failed
       verification, metadata preservation, and transaction rollback.
 - [ ] Cover manual specialist selection returning to the Orchestrator.
-- [ ] Add migrations and tests for existing local databases.
-- [ ] Repair or replace the two stale workflow-guard tests.
+- [x] Add migrations and tests for existing local databases.
+- [x] Repair or replace the stale workflow-guard integration test.
 - [ ] Update architecture, workflow, ticket, and operator documentation.
 - [ ] Run a fresh end-to-end smoke workflow on work item #17.
 
