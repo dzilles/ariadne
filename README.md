@@ -1,140 +1,87 @@
 # Ariadne
 
-Ariadne is an autonomous software lifecycle engine implementing the V-Model. It orchestrates AI agents to convert tickets from a local SQLite database into fully documented, tested, and version-controlled software using standard Git.
+A modular LLM harness prototype in Python 3.11+. The current implementation is headless: task storage, configuration, shared model access, application events, and the orchestrator. A UI will be added separately.
 
-The core philosophy is Dual-Gate Verification: No artifact moves to the next phase until it has been explicitly reviewed and approved by both an AI Auditor and a Human Operator.
+The previous Rust implementation, including its UI, is preserved in [deprecated/rust](deprecated/README.md). Existing task databases and configuration files remain readable.
 
-## Technology Stack
+## Run locally
 
-- **Project Management:** Local SQLite Database (Source of Truth for Tasks)
-- **Documentation & Analysis:** MkDocs (Markdown)
-- **Design:** Mermaid.js (Diagrams-as-Code)
-- **Version Control:** Git (Standard local/remote workflows)
-- **Testing:** Pytest (Unit/Integration) & Cucumber (Acceptance)
-- **Interface:** Textual (Terminal User Interface - TUI)
+There are no third-party runtime dependencies. Run these commands from the repository root:
 
-## The V-Model Workflow
-
-Ariadne strictly follows the phases defined in the system architecture:
-
-```mermaid
-graph TD
-    %% Left Side (Verification)
-    RG[Requirement Gathering] -->|Specs| SA[System Analysis]
-    SA -->|Context| SD[Software Design]
-    SD -->|Structure| MD[Module Design]
-    MD -->|Blueprints| Code[Coding]
-
-    %% Right Side (Validation)
-    Code -->|Verify Module| UT[Unit Testing]
-    UT -->|Verify Design| IT[Integration Testing]
-    IT -->|Verify System| ST[System Testing]
-    ST -->|Verify Reqs| AT[Acceptance Testing]
-
-    %% Connections (The V-Shape Links)
-    RG <--> AT
-    SA <--> ST
-    SD <--> IT
-    MD <--> UT
+```sh
+python3 -m unittest discover -s tests -v
+python3 -m examples.headless_flow
+python3 -m examples.task_flow
 ```
 
-## Installation
+The headless example runs a real orchestrator/tool loop with a deterministic offline model. It creates a task, streams application events, and saves the conversation in a temporary directory. No API key or network access is needed.
 
-### pip
+Optional installation with `python3 -m pip install .` adds the `ariadne` command, equivalent to `python3 -m ariadne`.
 
-Install from a local checkout:
-```bash
-git clone https://github.com/your-org/ariadne.git
-cd ariadne
-python -m pip install .
+## Modules
+
+| Module | Implementation | Details |
+| --- | --- | --- |
+| Tasks | [ariadne/task](ariadne/task/__init__.py) | [Data, APIs, recording, vectors](architecture/modules/task-module.md) |
+| Configuration | [ariadne/configuration](ariadne/configuration/__init__.py) | [Profiles, prompts, snapshots](architecture/modules/configuration-module.md) |
+| LLM access | [ariadne/llm](ariadne/llm/__init__.py) | [OpenRouter and adapter interface](architecture/modules/llm-module.md) |
+| Application interface | [ariadne/interaction](ariadne/interaction/__init__.py) | [Session commands and events](architecture/modules/interaction-module.md) |
+| Orchestrator | [ariadne/orchestrator](ariadne/orchestrator/__init__.py) | [Headless conversation/tool loop](architecture/modules/orchestrator-module.md) |
+
+See the [architecture diagram](architecture/architecture.md) and [implementation status](architecture/technical-reference.md). Workflow execution, worker agents, context assembly, project knowledge, and automatic Git capture remain planned modules. Tasks can already record workflow, tool, usage, and separate development/checkpoint Git events.
+
+## Task API
+
+The CLI accepts one JSON request per line and returns an `ok/result` or `ok/error` envelope. It continues after a malformed request.
+
+```sh
+echo '{"op":"create_task","project_id":"demo","description":"Implement chat streaming","tags":["android"]}' |
+  python3 -m ariadne task --db /tmp/ariadne-demo.sqlite
+echo '{"op":"search_tasks","project_id":"demo","text":"streaming"}' |
+  python3 -m ariadne task --db /tmp/ariadne-demo.sqlite
+python3 -m ariadne task --tools
 ```
 
-For development:
-```bash
-python -m pip install -e ".[dev]"
+Task definitions use the default `orchestrator` role. Automatic updates require `--role recorder`; embedding jobs require `--role indexer`. The orchestrator's LLM tool list excludes both internal APIs. Workers receive task context without task-management tools.
+
+## Vector search
+
+The [system fixture](tests/system/README.md) contains 30 dependent Android AI-chat tasks with existing vectors. Copy it before experimenting:
+
+```sh
+cp tests/system/fixtures/android-chat.sqlite /tmp/android-chat-demo.sqlite
+echo '{"op":"search_tasks","project_id":"android-ai-chat","text":"internet search citations","mode":"semantic","tag":"search","limit":5}' |
+  python3 -m ariadne task --db /tmp/android-chat-demo.sqlite
 ```
 
-After installation, use the console command:
-```bash
-ariadne init
-ariadne tui
+After changing source text, process pending embeddings:
+
+```sh
+echo '{"op":"index_pending","limit":200}' |
+  python3 -m ariadne task --db /tmp/android-chat-demo.sqlite --role indexer
 ```
 
-### Arch Linux / pacman
+The CLI and fixture use **deterministic token-hash demo vectors**, not learned semantic embeddings. Python applications can provide an `Embedder` implementation for a real embedding model. Task text, revisions, and pending jobs are committed together in SQLite; stale embedding results are rejected. Search reports index coverage.
 
-Build and install a self-contained local pacman package:
-```bash
-git clone https://github.com/your-org/ariadne.git
-cd ariadne/packaging/arch
-makepkg -si
+## Configuration and OpenRouter
+
+Initialize an empty configuration directory with an explicit model ID:
+
+```sh
+python3 -m ariadne init --root .ariadne --model '<OpenRouter model ID>'
+echo '{"op":"list_profiles"}' | python3 -m ariadne config --root .ariadne
 ```
 
-This builds from the local git checkout, installs Ariadne into `/opt/ariadne-lifecycle`, and creates `/usr/bin/ariadne`. Python dependencies are installed into Ariadne's private virtual environment during package build, so this does not require AUR Python packages and does not install into Arch's system Python.
+For live requests, supply `OPENROUTER_API_KEY` in the process environment. Configuration saves only `env:OPENROUTER_API_KEY`, never the resolved key. Configuration changes use the CLI's `--role editor`; discovery defaults to `reader`.
 
-If you do not want a pacman package, use a virtual environment instead of system pip:
-```bash
-python -m venv .venv
-source .venv/bin/activate
-python -m pip install .
+[examples/configuration.json](examples/configuration.json) includes agent profiles and a code → review → testing definition. To save and inspect it in an empty directory:
+
+```sh
+python3 -m examples.configuration_flow /tmp/ariadne-config-demo
 ```
 
-### Manual Development Environment
-```bash
-git clone https://github.com/your-org/ariadne.git
-cd ariadne
-python -m venv .venv
-# Windows:
-.\.venv\Scripts\activate
-# Linux/macOS:
-source .venv/bin/activate
-pip install -r requirements.txt
-```
+## Future UI integration
 
-### Initialize Configuration
-Initialize the local configuration folder.
-```bash
-ariadne init
-```
-This will create an `.ariadne/user_settings.json` file where you can configure your LLM backend and other preferences.
+Use `await Application.start(Options(...))`, create or load a conversation, subscribe through `app.interface.subscribe(session_id)`, and submit a `send_message` command. Consume events asynchronously and close the application when finished. [The offline example](examples/headless_flow.py) shows this complete flow; [the live LLM example](examples/llm_call.py) shows a standalone OpenRouter call.
 
-*Note: For security reasons, API keys are NOT stored in files. Ariadne uses a secure system Vault for secrets.*
-
-## Usage: The Terminal UI (TUI)
-
-Ariadne operates entirely through an advanced, interactive Terminal UI.
-
-To launch the engine:
-```bash
-ariadne tui
-```
-
-### Managing Secrets
-The first time you run Ariadne, you must configure your API keys. Ariadne stores these securely in your operating system's native keychain (Vault), rather than relying on insecure `.env` text files.
-
-Inside the TUI, use the `/secret` command:
-```text
-/secret LLM_API_KEY <your_gemini_or_openai_key>
-```
-### Ticket Management (CLI)
-Ariadne provides simple CLI commands to manage your local tickets:
-```bash
-ariadne list-tickets       # List all tickets in a table
-ariadne get-ticket <ID>    # Show full details of a ticket
-```
-
-### Selecting Agents
-Ariadne utilizes specialized agents for different phases of the V-Model. You can switch the active agent based on the task you need performed:
-```text
-/agent "Orchestrator"   # Manages the backlog and coordinates workflow
-/agent "Requirements"   # Refines tickets into specs
-/agent "Architect"      # Designs the system architecture
-/agent "Developer"      # Writes the code
-/agent "Tester"         # Writes the test suite
-```
-
-### Executing Tasks
-Once an agent is selected, you simply converse with it:
-```text
-> Please implement the authentication logic defined in Ticket-1.
-```
-The agent will autonomously read the ticket, execute the necessary bash/git commands, modify the code, and ask for your approval via the Dual-Gate Verification system before making any permanent commits or marking tickets as completed.
+Only orchestrator conversations are persisted as chat history, alongside configuration snapshots. Task facts, recorded execution results, and usage live in the task database. Live event streams are temporary.

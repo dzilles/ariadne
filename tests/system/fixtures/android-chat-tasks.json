@@ -1,0 +1,311 @@
+{
+  "project_id": "android-ai-chat",
+  "repository_id": "android-ai-chat-app",
+  "tasks": [
+    {
+      "key": "APP-001",
+      "title": "Define the Android AI chat product and acceptance scenarios",
+      "description": "Describe an Android app where a user can hold persistent conversations with AI models, configure several LLM providers, connect remote MCP servers, and request internet searches. Define the first release scope, user journeys, and the distinction between conversation data and connection settings.",
+      "acceptance_criteria": ["Document chat, provider switching, MCP connection, and web-search journeys.", "Define behavior when credentials, connectivity, or tool permissions are missing.", "Write release acceptance scenarios that later system tests can execute."],
+      "tags": ["android", "planning"],
+      "blocked_by": [],
+      "state": "completed",
+      "files": [{"path": "docs/product.md", "comment": "Defines the product scope and acceptance scenarios for every feature."}]
+    },
+    {
+      "key": "APP-002",
+      "title": "Bootstrap the Android project and continuous integration",
+      "description": "Create the Kotlin Android application, module boundaries, build configuration, and a minimal launchable screen. Establish automated compilation, formatting, and unit-test checks without committing provider credentials.",
+      "acceptance_criteria": ["A clean checkout builds and launches the application shell.", "CI compiles the app and runs its initial tests.", "Document local setup and where development connection settings belong."],
+      "tags": ["android", "foundation", "build"],
+      "blocked_by": ["APP-001"],
+      "state": "completed",
+      "files": [{"path": "app/build.gradle.kts", "comment": "Application build entry point for the Android prototype."}]
+    },
+    {
+      "key": "APP-003",
+      "title": "Define conversation, provider, model, and tool domain types",
+      "description": "Define typed conversations, messages, provider profiles, model capabilities, MCP connections, tool requests, and tool results. Keep provider-specific wire formats outside the shared domain model and represent streaming and failure states explicitly.",
+      "acceptance_criteria": ["Represent user, assistant, and tool messages with stable identifiers.", "Model capabilities distinguish streaming and tool-calling support.", "Tool invocations have correlation IDs and explicit pending, successful, and failed states."],
+      "tags": ["android", "foundation", "domain"],
+      "blocked_by": ["APP-001"],
+      "state": "completed",
+      "files": [{"path": "core/domain/ChatModels.kt", "comment": "Shared types used by chat storage, LLM adapters, and MCP execution."}]
+    },
+    {
+      "key": "APP-004",
+      "title": "Persist conversations and messages locally",
+      "description": "Implement local storage for conversations, ordered messages, selected model references, and tool-result references. Define migrations and repository operations for creating, reopening, renaming, and deleting a conversation.",
+      "acceptance_criteria": ["Messages survive application restart with stable ordering.", "Deleting a conversation removes its messages and tool-result associations.", "Migration and repository tests cover existing conversation data."],
+      "tags": ["android", "storage", "chat"],
+      "blocked_by": ["APP-002", "APP-003"],
+      "state": "completed",
+      "files": [{"path": "core/data/ConversationRepository.kt", "comment": "Owns durable chat history and conversation lifecycle operations."}]
+    },
+    {
+      "key": "APP-005",
+      "title": "Store provider and server connection settings with credential references",
+      "description": "Persist named LLM and remote-server profiles, endpoint URLs, and references to credentials held in Android-supported protected storage. Support editing and removing credentials without embedding them in conversation exports or diagnostic logs.",
+      "acceptance_criteria": ["Connection profiles survive application restart.", "Credentials are resolved only when making an authorized connection.", "Profile deletion and redacted error/log output are tested."],
+      "tags": ["android", "settings", "credentials"],
+      "blocked_by": ["APP-002", "APP-003"],
+      "state": "completed",
+      "files": [{"path": "core/settings/ConnectionProfileStore.kt", "comment": "Shared connection settings for LLM, MCP, and search providers."}]
+    },
+    {
+      "key": "APP-006",
+      "title": "Implement the common LLM provider interface",
+      "description": "Define an adapter interface for starting and cancelling model requests, streaming text, reporting usage, and receiving structured tool requests. Normalize timeouts and errors while retaining provider-specific diagnostic details behind the adapter boundary.",
+      "acceptance_criteria": ["A fake provider can stream text and return a structured tool request.", "Cancellation terminates a running request and produces a known final state.", "Shared contract tests distinguish retryable network failures from invalid requests."],
+      "tags": ["android", "llm", "foundation"],
+      "blocked_by": ["APP-003"],
+      "state": "completed",
+      "files": [{"path": "core/llm/LlmProvider.kt", "comment": "Provider-neutral request and streaming contract."}]
+    },
+    {
+      "key": "APP-007",
+      "title": "Implement the first hosted LLM provider adapter",
+      "description": "Connect the first supported hosted LLM endpoint to the common provider interface. Translate stored messages, consume streaming responses, and normalize tool-call arguments, usage, authentication errors, and cancellation.",
+      "acceptance_criteria": ["A mock endpoint verifies request translation and streamed text ordering.", "Fragmented tool-call arguments are assembled before execution.", "Authentication, rate-limit, and cancellation cases produce useful errors."],
+      "tags": ["android", "llm", "providers"],
+      "blocked_by": ["APP-005", "APP-006"],
+      "related_to": ["APP-008"],
+      "state": "in_progress",
+      "files": [{"path": "providers/hosted/HostedLlmProvider.kt", "comment": "First implementation against which the common provider contract is exercised."}]
+    },
+    {
+      "key": "APP-008",
+      "title": "Implement a second LLM provider with a different wire format",
+      "description": "Implement a second provider adapter whose authentication, streaming events, or tool-call representation differs from the first. Demonstrate that changing provider does not require changing shared conversation or UI code.",
+      "acceptance_criteria": ["The second adapter passes the same provider contract tests.", "Unsupported model capabilities are reported explicitly.", "Tests compare text, usage, and tool-call normalization across providers."],
+      "tags": ["android", "llm", "providers"],
+      "blocked_by": ["APP-005", "APP-006"],
+      "related_to": ["APP-007"],
+      "state": "blocked",
+      "state_reason": "Synthetic fixture blocker: the second provider's mock streaming-event examples have not been supplied.",
+      "files": [{"path": "providers/alternative/AlternativeLlmProvider.kt", "comment": "Exercises provider differences without leaking them into the chat feature."}]
+    },
+    {
+      "key": "APP-009",
+      "title": "Build the provider and model catalogue",
+      "description": "List configured providers and available models, cache capability information, and allow selecting a default or per-conversation model. Explain when a model cannot stream or call the tools required by the conversation.",
+      "acceptance_criteria": ["Users can distinguish provider identity from model identity.", "Missing credentials and unavailable models have visible states.", "Selections survive restart and incompatible tool choices are explained."],
+      "tags": ["android", "llm", "settings"],
+      "blocked_by": ["APP-007", "APP-008"],
+      "state": "draft",
+      "files": [{"path": "features/models/ModelCatalogue.kt", "comment": "Resolves provider/model choices and capabilities for chat requests."}]
+    },
+    {
+      "key": "APP-010",
+      "title": "Implement conversation request assembly and message persistence",
+      "description": "Build a chat session layer that loads the current conversation, assembles the selected model's context, sends a user message, and persists assistant and tool responses. Keep context limits and conversation identity explicit.",
+      "acceptance_criteria": ["A fake provider receives the intended conversation history.", "A failed send preserves the user's draft and a retryable message state.", "Messages from concurrent conversations cannot be mixed."],
+      "tags": ["android", "chat", "llm"],
+      "blocked_by": ["APP-004", "APP-006"],
+      "state": "ready",
+      "files": [{"path": "core/chat/ChatSession.kt", "comment": "Coordinates message persistence and provider calls for a single conversation."}]
+    },
+    {
+      "key": "APP-011",
+      "title": "Handle streaming, cancellation, and connection interruptions",
+      "description": "Integrate live provider streams into chat sessions with ordered partial messages, explicit cancellation, and network interruption handling. Prevent automatic retries from duplicating messages or repeating completed tool side effects.",
+      "acceptance_criteria": ["Partial assistant text appears in order and reaches a clear final state.", "Stopping a response cancels provider work and preserves received text.", "Reconnect and retry scenarios do not duplicate persisted messages."],
+      "tags": ["android", "chat", "streaming", "network"],
+      "blocked_by": ["APP-007", "APP-010"],
+      "state": "draft",
+      "files": [{"path": "core/chat/StreamingSession.kt", "comment": "Defines stream ownership, cancellation, and interruption recovery."}]
+    },
+    {
+      "key": "APP-012",
+      "title": "Implement conversation list and application navigation",
+      "description": "Build the Android conversation list, new-chat action, rename/delete interactions, and navigation to a selected conversation. Show empty and loading states and retain the selected conversation during screen recreation.",
+      "acceptance_criteria": ["Create, reopen, rename, and delete conversations from the UI.", "Navigation uses stable conversation IDs.", "Empty, populated, and restored navigation states are covered by UI tests."],
+      "tags": ["android", "ui", "chat"],
+      "blocked_by": ["APP-004"],
+      "state": "ready",
+      "files": [{"path": "features/conversations/ConversationListScreen.kt", "comment": "User entry point for navigating persistent chats."}]
+    },
+    {
+      "key": "APP-013",
+      "title": "Build the chat screen and live message composer",
+      "description": "Render user, assistant, and tool messages with a composer and visible streaming state. Connect the screen to chat sessions, preserve unsent drafts, and expose provider/model identity for the active conversation.",
+      "acceptance_criteria": ["Send messages and render partial assistant responses.", "Loading, error, and retry affordances are visible without losing the draft.", "The UI preserves scroll and draft state during screen recreation."],
+      "tags": ["android", "ui", "chat"],
+      "blocked_by": ["APP-010", "APP-012"],
+      "state": "draft",
+      "files": [{"path": "features/chat/ChatScreen.kt", "comment": "Main chat interaction surface for messages, tools, and model output."}]
+    },
+    {
+      "key": "APP-014",
+      "title": "Render Markdown, code blocks, and external links",
+      "description": "Add readable formatting for assistant messages, code blocks with copy actions, and deliberate external-link opening. Treat received text as untrusted display content and avoid executing embedded markup or scripts.",
+      "acceptance_criteria": ["Paragraphs, lists, code blocks, and links render legibly.", "Code can be copied without copying UI controls.", "Malformed Markdown and unsupported URL schemes are handled predictably."],
+      "tags": ["android", "ui", "rendering"],
+      "blocked_by": ["APP-013"],
+      "state": "draft",
+      "files": [{"path": "features/chat/MessageContent.kt", "comment": "Formatting layer later reused for search citations and tool output."}]
+    },
+    {
+      "key": "APP-015",
+      "title": "Add stop, retry, regenerate, and edit-message actions",
+      "description": "Connect chat-screen actions to streaming cancellation and explicit request retries. Define how editing an earlier message changes subsequent context, and how regeneration preserves previous responses for inspection.",
+      "acceptance_criteria": ["Stop affects only the active response in the selected conversation.", "Retry and regenerate use explicit message/request identities.", "Editing earlier messages cannot silently reuse incompatible later tool results."],
+      "tags": ["android", "chat", "ui"],
+      "blocked_by": ["APP-011", "APP-013"],
+      "state": "draft",
+      "files": [{"path": "features/chat/MessageActions.kt", "comment": "Defines user-controlled revisions and cancellation of chat work."}]
+    },
+    {
+      "key": "APP-016",
+      "title": "Manage remote MCP server connection profiles",
+      "description": "Add named MCP server profiles with endpoint, credential reference, connection settings, and enabled state. Scope the initial Android implementation to remote servers; local command-based servers remain outside the first release.",
+      "acceptance_criteria": ["Create, edit, enable, disable, and remove server profiles.", "Connection validation reports missing endpoint or credential information.", "Profiles remain independent from individual conversations."],
+      "tags": ["android", "mcp", "settings"],
+      "blocked_by": ["APP-003", "APP-005"],
+      "state": "ready",
+      "files": [{"path": "core/mcp/McpServerProfile.kt", "comment": "Connection configuration used by MCP discovery and session management."}]
+    },
+    {
+      "key": "APP-017",
+      "title": "Implement MCP sessions, capability discovery, and tool listing",
+      "description": "Connect to configured remote MCP servers using an agreed supported protocol version and transport. Implement initialization, capability discovery, tool listing, request correlation, disconnection, and clear unsupported-capability errors.",
+      "acceptance_criteria": ["A mock MCP server verifies initialization and tool discovery.", "Tool definitions retain their server identity and input schema.", "Connection loss, malformed responses, and cancellation clean up session state."],
+      "tags": ["android", "mcp", "network"],
+      "blocked_by": ["APP-006", "APP-016"],
+      "related_to": ["APP-021"],
+      "state": "draft",
+      "files": [{"path": "core/mcp/McpSession.kt", "comment": "Owns remote MCP protocol sessions and discovered server capabilities."}]
+    },
+    {
+      "key": "APP-018",
+      "title": "Add tool availability and approval controls",
+      "description": "Let users select which MCP tools a conversation may expose to an LLM. Show server identity, requested arguments, and approval state when a tool requires confirmation, and distinguish tool descriptions from application instructions.",
+      "acceptance_criteria": ["Disabled tools are absent from the model request.", "Rejected or cancelled approvals never execute the tool.", "Tool requests and decisions remain visible in conversation history."],
+      "tags": ["android", "mcp", "tools", "ui"],
+      "blocked_by": ["APP-017", "APP-013"],
+      "state": "draft",
+      "files": [{"path": "features/tools/ToolApprovalScreen.kt", "comment": "User-facing decision point for configured tool execution."}]
+    },
+    {
+      "key": "APP-019",
+      "title": "Implement the LLM-to-MCP tool execution loop",
+      "description": "Translate model tool requests into approved MCP calls, validate arguments, attach correlated tool results, and continue the model conversation. Bound the loop by time and call limits and preserve failures as structured results.",
+      "acceptance_criteria": ["The LLM can request a discovered MCP tool and receive its result.", "Arguments, server identity, and correlation IDs are validated before dispatch.", "Cancellation and retry do not repeat a completed side effect without an explicit new request."],
+      "tags": ["android", "llm", "mcp", "tools"],
+      "blocked_by": ["APP-007", "APP-017", "APP-018"],
+      "state": "draft",
+      "files": [{"path": "core/tools/ToolExecutionLoop.kt", "comment": "Connects provider-neutral tool calls with MCP execution and chat persistence."}]
+    },
+    {
+      "key": "APP-020",
+      "title": "Define the internet search provider contract",
+      "description": "Define a replaceable internet-search interface with query, result limit, URL, title, snippet, and retrieval timestamp. Include timeout, empty-result, quota, and cancellation outcomes plus a deterministic fake provider for testing.",
+      "acceptance_criteria": ["Search results carry source URLs and retrieval timestamps.", "A fake provider supports successful, empty, and failed searches.", "Search remains independent of the selected LLM provider."],
+      "tags": ["android", "search", "internet"],
+      "blocked_by": ["APP-006"],
+      "state": "ready",
+      "files": [{"path": "core/search/SearchProvider.kt", "comment": "Common internet-search contract used by UI and model tools."}]
+    },
+    {
+      "key": "APP-021",
+      "title": "Connect an internet search service",
+      "description": "Implement the first search-provider adapter with configurable credentials, request limits, response parsing, and cancellation. Normalize result URLs and retain enough source information to generate useful citations.",
+      "acceptance_criteria": ["Mock HTTP tests verify query translation and result parsing.", "Missing credentials, quota errors, and timeouts are actionable.", "Repeated URLs and empty responses are handled predictably."],
+      "tags": ["android", "search", "internet", "network"],
+      "blocked_by": ["APP-005", "APP-020"],
+      "related_to": ["APP-017"],
+      "state": "draft",
+      "files": [{"path": "providers/search/InternetSearchProvider.kt", "comment": "First external search-service adapter behind the common interface."}]
+    },
+    {
+      "key": "APP-022",
+      "title": "Display search sources and citations in messages",
+      "description": "Render retrieved search sources alongside assistant answers and tool results. Preserve the mapping between citation markers and original URLs, and make source inspection available after reopening a conversation.",
+      "acceptance_criteria": ["Citation markers open the corresponding recorded source.", "Citations and retrieval timestamps persist with conversation history.", "Invalid source references are displayed without inventing a replacement URL."],
+      "tags": ["android", "search", "citations", "ui"],
+      "blocked_by": ["APP-014", "APP-021"],
+      "state": "draft",
+      "files": [{"path": "features/chat/SourceCitations.kt", "comment": "Connects rendered assistant content to persisted internet sources."}]
+    },
+    {
+      "key": "APP-023",
+      "title": "Expose internet search inside the AI tool loop",
+      "description": "Expose the internet-search provider as an application tool that can run alongside selected MCP tools. Allow users to enable web access per conversation, feed retrieved snippets back to the model as source material, and retain citation provenance.",
+      "acceptance_criteria": ["An enabled model can search the internet and answer using returned sources.", "Disabling web access prevents new search calls.", "Search limits, cancellation, citations, and failure results participate in the common tool loop."],
+      "tags": ["android", "search", "internet", "llm", "tools"],
+      "blocked_by": ["APP-019", "APP-021", "APP-022"],
+      "state": "draft",
+      "files": [{"path": "core/tools/InternetSearchTool.kt", "comment": "Application-owned search tool exposed beside remote MCP tools."}]
+    },
+    {
+      "key": "APP-024",
+      "title": "Handle Android lifecycle changes and interrupted sessions",
+      "description": "Define ownership of network streams and tool calls across screen recreation, backgrounding, process death, and app restart. Restore recorded messages and pending-state explanations without blindly replaying tools that may already have completed.",
+      "acceptance_criteria": ["Screen recreation does not create a duplicate provider request.", "Process death restores durable messages and marks interrupted work clearly.", "Backgrounding and explicit cancellation follow documented session rules."],
+      "tags": ["android", "lifecycle", "chat", "network"],
+      "blocked_by": ["APP-011", "APP-013", "APP-019"],
+      "state": "draft",
+      "files": [{"path": "core/chat/SessionRecovery.kt", "comment": "Restores chat state without duplicating streams or tool side effects."}]
+    },
+    {
+      "key": "APP-025",
+      "title": "Build settings screens for LLM, MCP, and search connections",
+      "description": "Provide settings screens for provider/model defaults, credential references, MCP server profiles, internet-search configuration, and request limits. Include connection tests and keep saved settings changes distinct from active conversation behavior.",
+      "acceptance_criteria": ["Users can configure and test each connection type.", "Validation errors identify the affected profile without exposing secrets.", "Settings changes have explicit effects on new and existing conversations."],
+      "tags": ["android", "settings", "ui", "llm", "mcp", "search"],
+      "blocked_by": ["APP-009", "APP-016", "APP-021"],
+      "state": "draft",
+      "files": [{"path": "features/settings/ConnectionsScreen.kt", "comment": "Unified user configuration surface for the app's external connections."}]
+    },
+    {
+      "key": "APP-026",
+      "title": "Implement conversation export and local data deletion",
+      "description": "Export a conversation with messages, model labels, tool summaries, and citations using an Android-supported sharing flow. Implement local conversation deletion and an app-data reset that do not export credentials or unrelated connection secrets.",
+      "acceptance_criteria": ["An exported conversation preserves message ordering and source URLs.", "Exports omit credentials and internal authentication material.", "Deleting conversations or resetting local data updates the UI and storage consistently."],
+      "tags": ["android", "storage", "export", "privacy"],
+      "blocked_by": ["APP-004", "APP-012"],
+      "state": "draft",
+      "files": [{"path": "features/conversations/ConversationExport.kt", "comment": "Defines portable conversation output and deliberate data deletion."}]
+    },
+    {
+      "key": "APP-027",
+      "title": "Create contract tests for LLM, MCP, and internet integrations",
+      "description": "Build reusable mock LLM endpoints, MCP servers, and search responses for deterministic integration tests. Exercise streaming fragments, tool schemas, timeouts, cancellation, authentication failure, and unavailable capabilities without live credentials.",
+      "acceptance_criteria": ["Both LLM adapters run against the same behavioral contract suite.", "MCP and search fixtures cover success, malformed responses, and connection loss.", "Tests run in CI without external accounts or internet connectivity."],
+      "tags": ["android", "testing", "llm", "mcp", "search"],
+      "blocked_by": ["APP-008", "APP-017", "APP-021"],
+      "state": "draft",
+      "files": [{"path": "integration-tests/ProviderContractsTest.kt", "comment": "Reusable integration verification for all external service adapters."}]
+    },
+    {
+      "key": "APP-028",
+      "title": "Test end-to-end chat, provider switching, MCP tools, and web search",
+      "description": "Implement app-level scenarios covering a streamed chat, changing providers, approving an MCP tool, searching the internet, and opening citations. Include interrupted requests and disabled-tool behavior using deterministic service fixtures.",
+      "acceptance_criteria": ["The main product journeys execute against mock services on an Android test device.", "Provider selection, tool approvals, and search sources persist after reopening a chat.", "Failure scenarios leave understandable UI states and do not duplicate actions."],
+      "tags": ["android", "testing", "end-to-end", "chat"],
+      "blocked_by": ["APP-015", "APP-019", "APP-023", "APP-025", "APP-027"],
+      "state": "draft",
+      "files": [{"path": "app/src/androidTest/ChatJourneysTest.kt", "comment": "Verifies the complete chat experience across all requested integrations."}]
+    },
+    {
+      "key": "APP-029",
+      "title": "Verify accessibility, themes, and localized UI text",
+      "description": "Audit navigation, the composer, streamed messages, tool approvals, settings, and citations for accessible labels and text scaling. Support light/dark themes and move user-facing text into localizable resources.",
+      "acceptance_criteria": ["Core chat and settings flows remain usable with screen-reader navigation and large text.", "Streaming and tool-status announcements avoid excessive interruption.", "Themes and localized strings are covered by UI checks."],
+      "tags": ["android", "accessibility", "ui", "testing"],
+      "blocked_by": ["APP-012", "APP-013", "APP-014", "APP-025"],
+      "state": "draft",
+      "files": [{"path": "app/src/main/res/values/strings.xml", "comment": "Shared user-visible text for accessible and localizable app flows."}]
+    },
+    {
+      "key": "APP-030",
+      "title": "Prepare the first Android chat app release candidate",
+      "description": "Assemble a release candidate and document installation, supported LLM and remote MCP connection setup, internet-search configuration, and known limits. Run the acceptance suite and recovery checks before preparing distributable artifacts.",
+      "acceptance_criteria": ["Release builds pass automated checks and install on the chosen Android test matrix.", "Documentation covers credentials, provider switching, MCP tools, web search, and data export/deletion.", "Lifecycle, accessibility, and end-to-end acceptance results are attached to the release checklist."],
+      "tags": ["android", "release", "testing"],
+      "blocked_by": ["APP-024", "APP-026", "APP-028", "APP-029"],
+      "state": "draft",
+      "files": [{"path": "docs/release-checklist.md", "comment": "Collects first-release acceptance evidence and installation instructions."}]
+    }
+  ]
+}

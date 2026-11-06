@@ -1,1 +1,0 @@
-"""Work item storage adapters."""

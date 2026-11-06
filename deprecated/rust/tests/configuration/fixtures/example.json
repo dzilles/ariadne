@@ -1,0 +1,238 @@
+{
+  "providers": {
+    "openrouter": {
+      "id": "openrouter",
+      "adapter": "openrouter",
+      "base_url": "https://openrouter.ai/api/v1",
+      "credential_ref": "env:OPENROUTER_API_KEY"
+    }
+  },
+  "prompts": {
+    "orchestrator": {
+      "id": "orchestrator",
+      "text": "Coordinate the requested project work. Create and inspect tasks, choose configured agents and workflows, and report progress.\n\nUser request:\n{{user_request}}\n\nProject summary:\n{{project_summary}}",
+      "variables": [
+        "user_request",
+        "project_summary"
+      ]
+    },
+    "coder": {
+      "id": "coder",
+      "text": "Implement the assigned change using the permitted repository tools. Return a concise result with verification evidence. Runtime code records task bookkeeping.\n\nTask:\n{{task}}\n\nProject context:\n{{project_context}}\n\nPrevious findings:\n{{findings}}",
+      "variables": [
+        "task",
+        "project_context",
+        "findings"
+      ]
+    },
+    "reviewer": {
+      "id": "reviewer",
+      "text": "Review the change against its requirements and project conventions. Return concrete findings or approval with evidence.\n\nTask:\n{{task}}\n\nProject context:\n{{project_context}}\n\nChange:\n{{diff}}",
+      "variables": [
+        "task",
+        "project_context",
+        "diff"
+      ]
+    },
+    "tester": {
+      "id": "tester",
+      "text": "Select and run checks for the assigned change. Report actual commands and outcomes, with useful failure details.\n\nTask:\n{{task}}\n\nProject context:\n{{project_context}}\n\nChange:\n{{diff}}",
+      "variables": [
+        "task",
+        "project_context",
+        "diff"
+      ]
+    }
+  },
+  "profiles": {
+    "orchestrator": {
+      "id": "orchestrator",
+      "description": "Coordinate user requests, tasks, and configured workflows.",
+      "component": "orchestrator",
+      "prompt_ids": [
+        "orchestrator"
+      ],
+      "model": "example/planning-model",
+      "tools": [
+        "create_task",
+        "update_task",
+        "get_task",
+        "search_tasks",
+        "get_history",
+        "annotate_reference",
+        "add_note",
+        "list_profiles",
+        "list_workflows"
+      ],
+      "settings": {
+        "token_budget": 32000,
+        "max_tool_calls": 50
+      },
+      "provider_id": "openrouter"
+    },
+    "coder": {
+      "id": "coder",
+      "description": "Implement code changes and report verification results.",
+      "component": "agent",
+      "prompt_ids": [
+        "coder"
+      ],
+      "model": "example/coding-model",
+      "tools": [
+        "read_file",
+        "write_file",
+        "run_command"
+      ],
+      "settings": {
+        "token_budget": 32000,
+        "timeout_ms": 600000
+      },
+      "provider_id": "openrouter"
+    },
+    "reviewer": {
+      "id": "reviewer",
+      "description": "Review proposed changes and return actionable findings.",
+      "component": "agent",
+      "prompt_ids": [
+        "reviewer"
+      ],
+      "model": "example/review-model",
+      "tools": [
+        "read_file",
+        "run_command"
+      ],
+      "settings": {
+        "token_budget": 16000,
+        "timeout_ms": 300000
+      },
+      "provider_id": "openrouter"
+    },
+    "tester": {
+      "id": "tester",
+      "description": "Run checks and investigate observed test failures.",
+      "component": "agent",
+      "prompt_ids": [
+        "tester"
+      ],
+      "model": "example/coding-model",
+      "tools": [
+        "read_file",
+        "run_command"
+      ],
+      "settings": {
+        "token_budget": 16000,
+        "timeout_ms": 600000
+      },
+      "provider_id": "openrouter"
+    },
+    "context": {
+      "id": "context",
+      "description": "Prepare task and project material for the next assignment.",
+      "component": "context_service",
+      "tools": [
+        "search_text"
+      ],
+      "settings": {
+        "context_budget_tokens": 12000,
+        "max_search_results": 8
+      }
+    },
+    "runtime": {
+      "id": "runtime",
+      "description": "Run configured agents and observe their tool activity.",
+      "component": "runtime",
+      "tools": [
+        "read_file",
+        "write_file",
+        "run_command"
+      ],
+      "settings": {
+        "timeout_ms": 600000
+      }
+    },
+    "git": {
+      "id": "git",
+      "description": "Capture automatic code checkpoints beside development history.",
+      "component": "git_tracker",
+      "settings": {
+        "checkpoint_after_tools": true,
+        "exclude_ignored": true
+      }
+    },
+    "workflow": {
+      "id": "workflow",
+      "description": "Follow configured workflow transitions and limits.",
+      "component": "workflow_engine",
+      "settings": {
+        "max_step_executions": 12
+      }
+    }
+  },
+  "workflows": {
+    "code-review-test": {
+      "id": "code-review-test",
+      "start": "code",
+      "max_step_executions": 12,
+      "steps": {
+        "code": {
+          "agent_profile": "coder",
+          "inputs": [
+            "task",
+            "project_context",
+            "findings"
+          ],
+          "transitions": {
+            "completed": {
+              "kind": "step",
+              "step": "review"
+            },
+            "blocked": {
+              "kind": "blocked"
+            }
+          }
+        },
+        "review": {
+          "agent_profile": "reviewer",
+          "inputs": [
+            "task",
+            "project_context",
+            "diff"
+          ],
+          "transitions": {
+            "approved": {
+              "kind": "step",
+              "step": "test"
+            },
+            "changes_requested": {
+              "kind": "step",
+              "step": "code"
+            },
+            "blocked": {
+              "kind": "blocked"
+            }
+          }
+        },
+        "test": {
+          "agent_profile": "tester",
+          "inputs": [
+            "task",
+            "project_context",
+            "diff"
+          ],
+          "transitions": {
+            "passed": {
+              "kind": "completed"
+            },
+            "failed": {
+              "kind": "step",
+              "step": "code"
+            },
+            "blocked": {
+              "kind": "blocked"
+            }
+          }
+        }
+      }
+    }
+  }
+}

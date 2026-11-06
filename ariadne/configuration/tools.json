@@ -1,0 +1,65 @@
+[
+  {
+    "description": "Discover configured component profiles, including agent purpose, model, and tool IDs. Does not change configuration.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "component": {
+          "enum": [
+            "agent",
+            "orchestrator",
+            "context_service",
+            "runtime",
+            "git_tracker",
+            "workflow_engine",
+            "tool"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "name": "list_profiles"
+  },
+  {
+    "description": "Inspect an existing component profile by ID. Credentials are references, not resolved secrets.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "get_profile"
+  },
+  {
+    "description": "Discover configured workflows and their agent steps. Does not execute them.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object"
+    },
+    "name": "list_workflows"
+  },
+  {
+    "description": "Read a configured workflow by ID, including transitions and execution limits.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "get_workflow"
+  }
+]

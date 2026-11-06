@@ -1,0 +1,38 @@
+[package]
+name = "ariadne-tasks"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.89"
+description = "Ariadne LLM harness prototype with tasks, shared model access, and orchestrator chat"
+
+[[test]]
+name = "llm"
+path = "tests/llm/mod.rs"
+
+[[test]]
+name = "interaction"
+path = "tests/interaction/mod.rs"
+
+[[test]]
+name = "orchestrator"
+path = "tests/orchestrator/mod.rs"
+
+[[test]]
+name = "configuration"
+path = "tests/configuration/mod.rs"
+
+[[test]]
+name = "task"
+path = "tests/task/mod.rs"
+
+[[test]]
+name = "system"
+path = "tests/system/mod.rs"
+
+[[example]]
+name = "seed_android_chat"
+path = "tests/system/seed.rs"
+
+[dependencies]
+serde = { version = "=1.0.219", features = ["derive"] }
+serde_json = "=1.0.104"

@@ -1,0 +1,293 @@
+[
+  {
+    "description": "Create a draft task in a project. Returns the task and generated ID.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "project_id": {
+          "type": "string"
+        },
+        "tags": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "project_id",
+        "description"
+      ],
+      "type": "object"
+    },
+    "name": "create_task"
+  },
+  {
+    "description": "Edit the task definition. Omitted fields are unchanged. Lists replace explicit entries; observations survive. Goal changes require draft, ready, or blocked state.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "acceptance_criteria": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "description": {
+          "type": "string"
+        },
+        "expected_version": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "files": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "comment": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "commit_hash": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "end_line": {
+                "minimum": 1,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "path": {
+                "type": "string"
+              },
+              "repository_id": {
+                "type": "string"
+              },
+              "start_line": {
+                "minimum": 1,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "symbol": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "repository_id",
+              "path"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "id": {
+          "type": "string"
+        },
+        "links": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "comment": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "label": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "url": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "url"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "relations": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "enum": [
+                  "blocked_by",
+                  "related_to"
+                ],
+                "type": "string"
+              },
+              "task_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "task_id",
+              "kind"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "tags": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "update_task"
+  },
+  {
+    "description": "Read the current task, stable reference IDs, usage, and record version. History is fetched separately.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "get_task"
+  },
+  {
+    "description": "Set a reference comment explaining its relevance; observed file and Git facts are preserved.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "comment": {
+          "type": "string"
+        },
+        "reference_id": {
+          "type": "string"
+        },
+        "task_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id",
+        "reference_id",
+        "comment"
+      ],
+      "type": "object"
+    },
+    "name": "annotate_reference"
+  },
+  {
+    "description": "Append a user clarification, decision, or finding to task history.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "task_id": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id",
+        "text"
+      ],
+      "type": "object"
+    },
+    "name": "add_note"
+  },
+  {
+    "description": "Search within one project. Keyword mode is immediate; semantic mode uses the current vector index and reports index completeness. This prototype CLI uses token-hash demo vectors.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "default": 20,
+          "maximum": 200,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "mode": {
+          "default": "keyword",
+          "enum": [
+            "keyword",
+            "semantic"
+          ],
+          "type": "string"
+        },
+        "project_id": {
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "draft",
+            "ready",
+            "in_progress",
+            "blocked",
+            "completed",
+            "cancelled"
+          ],
+          "type": "string"
+        },
+        "tag": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "project_id"
+      ],
+      "type": "object"
+    },
+    "name": "search_tasks"
+  },
+  {
+    "description": "Read the most recent history entries, returned in chronological recording order.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "limit": {
+          "default": 20,
+          "maximum": 200,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "get_history"
+  }
+]

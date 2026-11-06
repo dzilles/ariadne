@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Ariadne · Your project, connected</title>
+  <link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script>
+</head>
+<body>
+  <aside class="sidebar" id="sidebar">
+    <a class="brand" href="/" aria-label="Ariadne home"><span class="brand-mark">a</span> ariadne<span class="prototype">local</span></a>
+    <button id="new-chat" class="new-chat">＋ <span>New conversation</span></button>
+    <p class="eyebrow">CONVERSATIONS</p><nav id="sessions" aria-label="Conversations"></nav>
+    <div class="sidebar-bottom"><span class="project-symbol">◇</span><div><strong id="project">Your project</strong><small>Project workspace</small></div></div>
+  </aside>
+  <main>
+    <header><div class="header-title"><button id="menu" class="icon-button" aria-label="Toggle conversations">☰</button><div><h1 id="conversation-title">New conversation</h1><span class="subtitle">A little clarity. A way forward.</span></div></div><div id="connection" class="connection"><i></i><span>Connecting</span></div></header>
+    <div id="notice" class="notice" role="status" hidden></div>
+    <section class="chat" aria-label="Chat with Ariadne">
+      <div id="welcome" class="welcome"><div class="welcome-mark">a</div><p class="eyebrow">MEET YOUR ORCHESTRATOR</p><h2>Find the thread.<br>Build what’s next.</h2><p>Think through an idea, turn it into tasks,<br>or pick up where you left off.</p><div class="suggestions"><button data-prompt="Help me break down my project into small, actionable tasks."><span>◇</span> Plan the next step <small>Turn an idea into a clear plan ↗</small></button><button data-prompt="Show me the tasks in this project and help me decide what to work on next."><span>☷</span> Explore my tasks <small>See the work and its connections ↗</small></button><button data-prompt="What can you help me with in this project?"><span>✳</span> Talk it through <small>Start with a question ↗</small></button></div></div>
+      <div id="messages" class="messages" aria-live="polite" aria-relevant="additions"></div>
+    </section>
+    <div class="composer-area"><div id="activity" class="activity" role="status"></div><form id="composer"><label class="sr-only" for="message">Message Ariadne</label><textarea id="message" placeholder="What would you like to work on?" rows="2" maxlength="65000"></textarea><div class="composer-bottom"><span id="model">OpenRouter</span><button id="stop" type="button" hidden>■ Stop</button><button id="send" type="submit" aria-label="Send message">↑</button></div></form><p class="composer-hint">Enter to send <span>·</span> Shift + Enter for a new line</p></div>
+  </main>
+  <aside class="tasks-panel"><div class="tasks-heading"><div><p class="eyebrow">THE WORKSPACE</p><h2>Project tasks</h2></div><span id="task-count">0</span></div><div id="tasks"></div><p class="tasks-footer">Tasks and progress stay with your project.<br>Ask Ariadne to create or refine a task.</p></aside>
+</body>
+</html>
